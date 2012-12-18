@@ -1,0 +1,15 @@
+all: noweb.py noweb.markdown
+
+# Builds to a temporary file first, then rebuilds using the temporary as script to ensure we don't accidentily break our buildscript
+noweb.py: noweb.py.nw
+	@tmpfile=`mktemp` ; \
+	set -x ; \
+	./noweb.py -R $@ $< -o $$tmpfile && \
+	python $$tmpfile -R $@ $< -o $@ && \
+	cat < $$tmpfile > $@ ; \
+	r=$$? ; \
+	rm $$tmpfile ; \
+	exit $$r
+
+noweb.markdown: noweb.py.nw noweb.py
+	./noweb.py -w $< -o $@ --github-syntax=python
