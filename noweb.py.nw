@@ -71,24 +71,35 @@ We redirect the output into a hello.php file.
 
 In a literate program, there are named chunks of code interspersed throughout
 the document. Take the chunk of code below. The name of it is "Reading in the file".
-The chunk ends with an @ sign.
+The chunk ends with a line starting with an @ sign.
+
+First we begin with syntax definitions of regexes matching the start, end and invocations
+of a chunk. Important to note is that the @ sign only ends a chunk only if it is followed
+by whitespace or is the last symbol on the line.
+
+<<Defining the syntax>>=
+chunk_re         = re.compile(r'<<(?P<name>[^>]+)>>')
+chunk_def        = re.compile(chunk_re.pattern + r'=')
+chunk_end        = re.compile(r'^@(?=\s|$)')
+chunk_invocation = re.compile(r'^(?P<indent>\s*)' + chunk_re.pattern + r'\s*$')
+@
 
 Let's start by reading in the file given on the command line. We'll build up
 a map called "chunks", which will contain the chunk names and the lines of each chunk.
 
 <<Reading in the file>>=
+<<Defining the syntax>>
+
 chunkName = None
 chunks = {}
-OPEN = "<<"
-CLOSE = ">>"
+
 for line in args.infile:
-    match = re.match(OPEN + "([^>]+)" + CLOSE + "=", line)
+    match = chunk_def.match(line)
     if match:
-        chunkName = match.group(1)
+        chunkName = match.group('name')
         chunks[chunkName] = []
     else:
-        match = re.match("@", line)
-        if match:
+        if chunk_end.match(line):
             chunkName = None
         elif chunkName:
             chunks[chunkName].append(line)
@@ -135,9 +146,9 @@ in the output chunk requested by the user. Take a deep breath.
 <<Recursively expanding the output chunk>>=
 def expand(chunkName, indent=""):
     for line in chunks[chunkName]:
-        match = re.match("(\s*)" + OPEN + "([^>]+)" + CLOSE + "\s*$", line)
+        match = chunk_invocation.match(line)
         if match:
-            for line in expand(match.group(2), indent + match.group(1)):
+            for line in expand(match.group('name'), indent + match.group('indent')):
                 yield line
         else:
             yield indent + line

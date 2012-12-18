@@ -18,27 +18,30 @@ parser.add_argument('infile',                            metavar='FILE',  type=a
 parser.add_argument('-o', '--output', dest='outfile',    metavar='FILE',  type=argparse.FileType('w'), default='-', help='file to output to, "-" for stdout')
 
 args = parser.parse_args()
+chunk_re         = re.compile(r'<<(?P<name>[^>]+)>>')
+chunk_def        = re.compile(chunk_re.pattern + r'=')
+chunk_end        = re.compile(r'^@(?=\s|$)')
+chunk_invocation = re.compile(r'^(?P<indent>\s*)' + chunk_re.pattern + r'\s*$')
+
 chunkName = None
 chunks = {}
-OPEN = "<<"
-CLOSE = ">>"
+
 for line in args.infile:
-    match = re.match(OPEN + "([^>]+)" + CLOSE + "=", line)
+    match = chunk_def.match(line)
     if match:
-        chunkName = match.group(1)
+        chunkName = match.group('name')
         chunks[chunkName] = []
     else:
-        match = re.match("@", line)
-        if match:
+        if chunk_end.match(line):
             chunkName = None
         elif chunkName:
             chunks[chunkName].append(line)
 
 def expand(chunkName, indent=""):
     for line in chunks[chunkName]:
-        match = re.match("(\s*)" + OPEN + "([^>]+)" + CLOSE + "\s*$", line)
+        match = chunk_invocation.match(line)
         if match:
-            for line in expand(match.group(2), indent + match.group(1)):
+            for line in expand(match.group('name'), indent + match.group('indent')):
                 yield line
         else:
             yield indent + line
