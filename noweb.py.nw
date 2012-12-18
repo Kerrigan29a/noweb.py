@@ -54,7 +54,7 @@ you can [download](http://github.com/JonathanAquino/noweb.py/raw/master/noweb.py
 The end goal is to produce a Python script that will take a literate program
 as input (noweb format) and extract code from it as output. For example,
 
-    noweb.py -Rhello.php hello.noweb > hello.php
+    noweb.py -Rhello.php hello.noweb -o hello.php
 
 This will read in a file called hello.noweb and extract the code labelled "hello.php".
 We redirect the output into a hello.php file.
@@ -238,9 +238,9 @@ code from it. You can use the original [noweb](http://www.cs.tufts.edu/~nr/noweb
 tool, but that's a bit cumbersome to install, so it's easier to use the
 Python script [noweb.py](http://github.com/JonathanAquino/noweb.py/raw/master/noweb.py).
 
-Then you can generate noweb.py from noweb.py.html as follows:
+Then you can generate noweb.py from noweb.py.nw as follows:
 
-    noweb.py -Rnoweb.py noweb.py.txt > noweb.py
+    noweb.py -Rnoweb.py noweb.py.nw -o noweb.py
 
 
 
