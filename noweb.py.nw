@@ -112,8 +112,9 @@ the command-line arguments given to the script:
 
 <<Parsing the command-line arguments>>=
 parser = argparse.ArgumentParser('NoWeb command line options.')
-parser.add_argument('-R', '--chunk', metavar='CHUNK', required=True, dest='chunk_name', help='name of chunk to write to stdout')
-parser.add_argument('infile', metavar='FILE', type=argparse.FileType('r'), help='input file to process, "-" for stdin')
+parser.add_argument('-R', '--chunk',  dest='chunk_name', metavar='CHUNK', required=True,                            help='name of chunk to write to stdout')
+parser.add_argument('infile',                            metavar='FILE',  type=argparse.FileType('r'),              help='input file to process, "-" for stdin')
+parser.add_argument('-o', '--output', dest='outfile',    metavar='FILE',  type=argparse.FileType('w'), default='-', help='file to output to, "-" for stdout')
 
 args = parser.parse_args()
 @
@@ -158,7 +159,7 @@ The last step is easy. We just call the recursive function and output the result
 
 <<Outputting the chunks>>=
 for line in expand(args.chunk_name, ""):
-    print line,
+    args.outfile.write(line)
 @
 
 And we're done. We now have a tool to extract code from a literate programming document.
@@ -212,7 +213,6 @@ Here's how the pieces we have discussed fit together:
 
 import argparse
 import re
-import sys
 <<Parsing the command-line arguments>>
 <<Reading in the file>>
 

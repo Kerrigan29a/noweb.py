@@ -12,10 +12,10 @@
 
 import argparse
 import re
-import sys
 parser = argparse.ArgumentParser('NoWeb command line options.')
-parser.add_argument('-R', '--chunk', metavar='CHUNK', required=True, dest='chunk_name', help='name of chunk to write to stdout')
-parser.add_argument('infile', metavar='FILE', type=argparse.FileType('r'), help='input file to process, "-" for stdin')
+parser.add_argument('-R', '--chunk',  dest='chunk_name', metavar='CHUNK', required=True,                            help='name of chunk to write to stdout')
+parser.add_argument('infile',                            metavar='FILE',  type=argparse.FileType('r'),              help='input file to process, "-" for stdin')
+parser.add_argument('-o', '--output', dest='outfile',    metavar='FILE',  type=argparse.FileType('w'), default='-', help='file to output to, "-" for stdout')
 
 args = parser.parse_args()
 chunkName = None
@@ -45,4 +45,4 @@ def expand(chunkName, indent):
             yield indent + line
 
 for line in expand(args.chunk_name, ""):
-    print line,
+    args.outfile.write(line)
