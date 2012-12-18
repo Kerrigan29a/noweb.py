@@ -12,10 +12,10 @@
 
 import argparse
 import re
-parser = argparse.ArgumentParser('NoWeb command line options.')
-parser.add_argument('-R', '--chunk',  dest='chunk_name', metavar='CHUNK', required=True,                            help='name of chunk to write to stdout')
-parser.add_argument('infile',                            metavar='FILE',  type=argparse.FileType('r'),              help='input file to process, "-" for stdin')
-parser.add_argument('-o', '--output', dest='outfile',    metavar='FILE',  type=argparse.FileType('w'), default='-', help='file to output to, "-" for stdout')
+cmd_line_parser = argparse.ArgumentParser('NoWeb command line options.')
+cmd_line_parser.add_argument('-R', '--chunk',  dest='chunk_name', metavar='CHUNK', required=True,                            help='name of chunk to write to stdout')
+cmd_line_parser.add_argument('infile',                            metavar='FILE',  type=argparse.FileType('r'),              help='input file to process, "-" for stdin')
+cmd_line_parser.add_argument('-o', '--output', dest='outfile',    metavar='FILE',  type=argparse.FileType('w'), default='-', help='file to output to, "-" for stdout')
 chunk_re         = re.compile(r'<<(?P<name>[^>]+)>>')
 chunk_def        = re.compile(chunk_re.pattern + r'=')
 chunk_at         = re.compile(r'^@@(?=\s|$)')
@@ -35,7 +35,7 @@ def expand(chunkName, indent=""):
                 yield line
 
 if __name__ == "__main__":
-    args = parser.parse_args()
+    args = cmd_line_parser.parse_args()
     chunkName = None
     chunks = {}
 
