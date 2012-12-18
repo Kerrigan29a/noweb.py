@@ -41,7 +41,7 @@ if __name__ == "__main__":
 
     for line in args.infile:
         match = chunk_def.match(line)
-        if match:
+        if match and not chunkName:
             chunkName = match.group('name')
             chunks[chunkName] = []
         else:
