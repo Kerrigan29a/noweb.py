@@ -75,11 +75,16 @@ The chunk ends with a line starting with an @ sign.
 
 First we begin with syntax definitions of regexes matching the start, end and invocations
 of a chunk. Important to note is that the @ sign only ends a chunk only if it is followed
-by whitespace or is the last symbol on the line.
+by whitespace or is the last symbol on the line. Additionally a double @@ in the first
+column of a line that is immediately followed by whitespace or is the end of the line is
+replaced with a single @ and does *not* terminate the chunk. This is intended as an
+escaping technique allowing the use of the @ sign on the first column for languages that
+require it for their own syntax.
 
 <<Defining the syntax>>=
 chunk_re         = re.compile(r'<<(?P<name>[^>]+)>>')
 chunk_def        = re.compile(chunk_re.pattern + r'=')
+chunk_at         = re.compile(r'^@@(?=\s|$)')
 chunk_end        = re.compile(r'^@(?=\s|$)')
 chunk_invocation = re.compile(r'^(?P<indent>\s*)' + chunk_re.pattern + r'\s*$')
 @
@@ -102,6 +107,7 @@ for line in args.infile:
         if chunk_end.match(line):
             chunkName = None
         elif chunkName:
+            line = chunk_at.sub('@', line)
             chunks[chunkName].append(line)
 @
 

@@ -20,6 +20,7 @@ parser.add_argument('-o', '--output', dest='outfile',    metavar='FILE',  type=a
 args = parser.parse_args()
 chunk_re         = re.compile(r'<<(?P<name>[^>]+)>>')
 chunk_def        = re.compile(chunk_re.pattern + r'=')
+chunk_at         = re.compile(r'^@@(?=\s|$)')
 chunk_end        = re.compile(r'^@(?=\s|$)')
 chunk_invocation = re.compile(r'^(?P<indent>\s*)' + chunk_re.pattern + r'\s*$')
 
@@ -35,6 +36,7 @@ for line in args.infile:
         if chunk_end.match(line):
             chunkName = None
         elif chunkName:
+            line = chunk_at.sub('@', line)
             chunks[chunkName].append(line)
 
 def expand(chunkName, indent=""):
