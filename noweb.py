@@ -13,7 +13,7 @@
 import argparse
 import re
 cmd_line_parser = argparse.ArgumentParser('NoWeb command line options.')
-cmd_line_parser.add_argument('-R', '--chunk',  dest='chunk_name', metavar='CHUNK', required=True,                            help='name of chunk to write to stdout')
+cmd_line_parser.add_argument('-R', '--chunk',                     metavar='CHUNK', required=True,                            help='name of chunk to write to stdout')
 cmd_line_parser.add_argument('infile',                            metavar='FILE',  type=argparse.FileType('r'),              help='input file to process, "-" for stdin')
 cmd_line_parser.add_argument('-o', '--output', dest='outfile',    metavar='FILE',  type=argparse.FileType('w'), default='-', help='file to output to, "-" for stdout')
 chunk_re         = re.compile(r'<<(?P<name>[^>]+)>>')
@@ -50,5 +50,5 @@ if __name__ == "__main__":
             elif chunkName:
                 line = chunk_at.sub('@', line)
                 chunks[chunkName].append(line)
-    for line in expand(args.chunk_name):
+    for line in expand(args.chunk):
         args.outfile.write(line)

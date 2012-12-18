@@ -127,7 +127,7 @@ the command-line arguments given to the script:
 
 <<Defining the command-line parser>>=
 cmd_line_parser = argparse.ArgumentParser('NoWeb command line options.')
-cmd_line_parser.add_argument('-R', '--chunk',  dest='chunk_name', metavar='CHUNK', required=True,                            help='name of chunk to write to stdout')
+cmd_line_parser.add_argument('-R', '--chunk',                     metavar='CHUNK', required=True,                            help='name of chunk to write to stdout')
 cmd_line_parser.add_argument('infile',                            metavar='FILE',  type=argparse.FileType('r'),              help='input file to process, "-" for stdin')
 cmd_line_parser.add_argument('-o', '--output', dest='outfile',    metavar='FILE',  type=argparse.FileType('w'), default='-', help='file to output to, "-" for stdout')
 @
@@ -177,7 +177,7 @@ def expand(chunkName, indent=""):
 The last step is easy. We just call the recursive function and output the result.
 
 <<Outputting the chunks>>=
-for line in expand(args.chunk_name):
+for line in expand(args.chunk):
     args.outfile.write(line)
 @
 
@@ -242,5 +242,3 @@ if __name__ == "__main__":
     <<Reading in the file>>
     <<Outputting the chunks>>
 @
-
-
