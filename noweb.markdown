@@ -81,18 +81,22 @@ replaced with a single @ and does *not* terminate the chunk. This is intended as
 escaping technique allowing the use of the @ sign on the first column for languages that
 require it for their own syntax.
 
-<<Defining the syntax>>=
+
+###### Defining the syntax
+```python
 chunk_re         = re.compile(r'<<(?P<name>[^>]+)>>')
 chunk_def        = re.compile(chunk_re.pattern + r'=')
 chunk_at         = re.compile(r'^@@(?=\s|$)')
 chunk_end        = re.compile(r'^@(?=\s|$)')
 chunk_invocation = re.compile(r'^(?P<indent>\s*)' + chunk_re.pattern + r'\s*$')
-@
+```
 
 Let's start by reading in the file given on the command line. We'll build up
 a map called "chunks", which will contain the chunk names and the lines of each chunk.
 
-<<Reading in the file>>=
+
+###### Reading in the file
+```python
 chunkName = None
 chunks = {chunkName: []}
 
@@ -108,7 +112,7 @@ for line in args.infile:
         else:
             line = chunk_at.sub('@', line)
             chunks[chunkName].append(line)
-@
+```
 
 
 
@@ -126,7 +130,9 @@ the command-line arguments given to the script:
 
     noweb.py -Rhello.php hello.noweb
 
-<<Defining the command-line parser>>=
+
+###### Defining the command-line parser
+```python
 cmd_line_parser = argparse.ArgumentParser('NoWeb command line options.')
 cmd_line_parser.add_argument('infile',                            metavar='FILE',  type=argparse.FileType('r'),              help='input file to process, "-" for stdin')
 cmd_line_parser.add_argument('-o', '--output', dest='outfile',    metavar='FILE',  type=argparse.FileType('w'), default='-', help='file to output to, "-" for stdout')
@@ -141,11 +147,13 @@ _tangle_options.add_argument('-R', '--chunk', metavar='CHUNK',    help='name of 
 _weave_options  = _output_mode_dependent.add_argument_group('weave',  'Weave options')
 _weave_options.add_argument('-w', '--weave', action='store_true', help='weave output instead of tangling')
 _weave_options.add_argument('--github-syntax', metavar='LANGUAGE', help='use GitHub-Flavoured MarkDown as output for chunks')
-@
+```
 
-<<Parsing the command-line arguments>>=
+
+###### Parsing the command-line arguments
+```python
 args = cmd_line_parser.parse_args()
-@
+```
 
 
 
@@ -160,7 +168,9 @@ args = cmd_line_parser.parse_args()
 So far, so good. Now we need a recursive function to expand any chunks found
 in the output chunk requested by the user. Take a deep breath.
 
-<<Recursively expanding the output chunk>>=
+
+###### Recursively expanding the output chunk
+```python
 def expand(chunkName, indent=""):
     for line in chunks[chunkName]:
         match = chunk_invocation.match(line)
@@ -186,7 +196,7 @@ def expand(chunkName, indent=""):
                 yield indent + line
             else:
                 yield line
-@
+```
 
 
 
@@ -201,10 +211,12 @@ def expand(chunkName, indent=""):
 
 The last step is easy. We just call the recursive function and output the result.
 
-<<Outputting the chunks>>=
+
+###### Outputting the chunks
+```python
 for line in expand(args.chunk):
     args.outfile.write(line)
-@
+```
 
 And we're done. We now have a tool to extract code from a literate programming document.
 Try it on this blog post!
@@ -242,7 +254,9 @@ Then you can generate noweb.py from noweb.py.html as follows:
 
 Here's how the pieces we have discussed fit together:
 
-<<noweb.py>>=
+
+###### noweb.py
+```python
 #!/usr/bin/env python
 
 #
@@ -266,4 +280,4 @@ if __name__ == "__main__":
     <<Parsing the command-line arguments>>
     <<Reading in the file>>
     <<Outputting the chunks>>
-@
+```
