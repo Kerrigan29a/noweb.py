@@ -10,15 +10,19 @@
 # see http://jonaquino.blogspot.com/2010/04/nowebpy-or-worlds-first-executable-blog.html
 #
 
-import sys, re
-filename = sys.argv[-1]
-outputChunkName = sys.argv[-2][2:]
-file = open(filename)
+import argparse
+import re
+import sys
+parser = argparse.ArgumentParser('NoWeb command line options.')
+parser.add_argument('-R', '--chunk', metavar='CHUNK', required=True, dest='chunk_name', help='name of chunk to write to stdout')
+parser.add_argument('infile', metavar='FILE', type=argparse.FileType('r'), help='input file to process, "-" for stdin')
+
+args = parser.parse_args()
 chunkName = None
 chunks = {}
 OPEN = "<<"
 CLOSE = ">>"
-for line in file:
+for line in args.infile:
     match = re.match(OPEN + "([^>]+)" + CLOSE + "=", line)
     if match:
         chunkName = match.group(1)
@@ -41,5 +45,5 @@ def expand(chunkName, indent):
             expandedChunkLines.append(indent + line)
     return expandedChunkLines
 
-for line in expand(outputChunkName, ""):
+for line in expand(args.chunk_name, ""):
     print line,
