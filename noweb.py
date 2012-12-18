@@ -46,7 +46,10 @@ def expand(chunkName, indent=""):
             for line in expand(match.group('name'), indent + match.group('indent')):
                 yield line
         else:
-            yield indent + line
+            if line and line != '\n':
+                yield indent + line
+            else:
+                yield line
 
 for line in expand(args.chunk_name):
     args.outfile.write(line)

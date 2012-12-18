@@ -157,7 +157,10 @@ def expand(chunkName, indent=""):
             for line in expand(match.group('name'), indent + match.group('indent')):
                 yield line
         else:
-            yield indent + line
+            if line and line != '\n':
+                yield indent + line
+            else:
+                yield line
 @
 
 
