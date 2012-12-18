@@ -34,9 +34,8 @@ for line in args.infile:
         elif chunkName:
             chunks[chunkName].append(line)
 
-def expand(chunkName, indent):
-    chunkLines = chunks[chunkName]
-    for line in chunkLines:
+def expand(chunkName, indent=""):
+    for line in chunks[chunkName]:
         match = re.match("(\s*)" + OPEN + "([^>]+)" + CLOSE + "\s*$", line)
         if match:
             for line in expand(match.group(2), indent + match.group(1)):
@@ -44,5 +43,5 @@ def expand(chunkName, indent):
         else:
             yield indent + line
 
-for line in expand(args.chunk_name, ""):
+for line in expand(args.chunk_name):
     args.outfile.write(line)

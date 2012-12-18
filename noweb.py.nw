@@ -133,9 +133,8 @@ So far, so good. Now we need a recursive function to expand any chunks found
 in the output chunk requested by the user. Take a deep breath.
 
 <<Recursively expanding the output chunk>>=
-def expand(chunkName, indent):
-    chunkLines = chunks[chunkName]
-    for line in chunkLines:
+def expand(chunkName, indent=""):
+    for line in chunks[chunkName]:
         match = re.match("(\s*)" + OPEN + "([^>]+)" + CLOSE + "\s*$", line)
         if match:
             for line in expand(match.group(2), indent + match.group(1)):
@@ -158,7 +157,7 @@ def expand(chunkName, indent):
 The last step is easy. We just call the recursive function and output the result.
 
 <<Outputting the chunks>>=
-for line in expand(args.chunk_name, ""):
+for line in expand(args.chunk_name):
     args.outfile.write(line)
 @
 
