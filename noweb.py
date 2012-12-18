@@ -36,14 +36,13 @@ for line in args.infile:
 
 def expand(chunkName, indent):
     chunkLines = chunks[chunkName]
-    expandedChunkLines = []
     for line in chunkLines:
         match = re.match("(\s*)" + OPEN + "([^>]+)" + CLOSE + "\s*$", line)
         if match:
-            expandedChunkLines.extend(expand(match.group(2), indent + match.group(1)))
+            for line in expand(match.group(2), indent + match.group(1)):
+                yield line
         else:
-            expandedChunkLines.append(indent + line)
-    return expandedChunkLines
+            yield indent + line
 
 for line in expand(args.chunk_name, ""):
     print line,
