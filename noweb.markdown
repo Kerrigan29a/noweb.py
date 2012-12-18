@@ -2,6 +2,13 @@ This executable document first appeared as a blog post on
 http://jonaquino.blogspot.com/2010/04/nowebpy-or-worlds-first-executable-blog.html
 
 
+###### License
+
+```python
+# Copyright (c) 2010  Jonathan Aquino (jonathan.aquino@gmail.com)
+# Copyright (c) 2012  Giel van Schijndel (me@mortis.eu)
+```
+
 
 I have recently been interested in the old idea of
 [literate programming](http://en.wikipedia.org/wiki/Literate_programming).
@@ -311,15 +318,13 @@ Here's how the pieces we have discussed fit together:
 ```python
 #!/usr/bin/env python
 
-#
-# noweb.py
-# By Jonathan Aquino (jonathan.aquino@gmail.com)
-#
-# This program extracts code from a literate programming document in "noweb" format.
-# It was generated from noweb.py.txt, itself a literate programming document.
-# For more information, including the original source code and documentation,
-# see http://jonaquino.blogspot.com/2010/04/nowebpy-or-worlds-first-executable-blog.html
-#
+<<License>>
+
+"""
+This program extracts code from a literate programming document in "noweb"
+format.  It was generated from noweb.py.nw, itself a literate programming
+document.
+"""
 
 import argparse
 import re
