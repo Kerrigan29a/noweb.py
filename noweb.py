@@ -12,9 +12,14 @@
 
 import argparse
 import re
+import sys
+try:
+    from cStringIO import StringIO
+except ImportError:
+    from StringIO import StringIO
 cmd_line_parser = argparse.ArgumentParser('NoWeb command line options.')
-cmd_line_parser.add_argument('infile',                            metavar='FILE',  type=argparse.FileType('r'),              help='input file to process, "-" for stdin')
-cmd_line_parser.add_argument('-o', '--output', dest='outfile',    metavar='FILE',  type=argparse.FileType('w'), default='-', help='file to output to, "-" for stdout')
+cmd_line_parser.add_argument('infile',         metavar='FILE',              help='input file to process, "-" for stdin')
+cmd_line_parser.add_argument('-o', '--output', metavar='FILE', default='-', help='file to output to, "-" for stdout')
 
 #FIXME: Apparently Python doesn't want groups within groups?
 #_output_mode_dependent = cmd_line_parser.add_mutually_exclusive_group(required=True)
@@ -60,10 +65,15 @@ def expand(chunkName, indent=""):
 
 if __name__ == "__main__":
     args = cmd_line_parser.parse_args()
+
+    if args.infile == '-':
+        infile = sys.stdin
+    else:
+        infile = open(args.infile, 'r')
     chunkName = None
     chunks = {chunkName: []}
 
-    for line in args.infile:
+    for line in infile:
         match = chunk_def.match(line)
         if match and not chunkName:
             chunks[chunkName].append(line)
@@ -75,5 +85,13 @@ if __name__ == "__main__":
             else:
                 line = chunk_at.sub('@', line)
                 chunks[chunkName].append(line)
+    if args.output == '-':
+        outfile = sys.stdout
+    else:
+        outfile = StringIO()
+
     for line in expand(args.chunk):
-        args.outfile.write(line)
+        outfile.write(line)
+    if args.output != '-':
+        with open(args.output, 'w') as f:
+            f.write(outfile.getvalue())
