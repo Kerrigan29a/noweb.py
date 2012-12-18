@@ -83,19 +83,22 @@ require it for their own syntax.
 
 
 ###### Defining the syntax
+
 ```python
 chunk_re         = re.compile(r'<<(?P<name>[^>]+)>>')
 chunk_def        = re.compile(chunk_re.pattern + r'=')
 chunk_at         = re.compile(r'^@@(?=\s|$)')
-chunk_end        = re.compile(r'^@(?=\s|$)')
+chunk_end        = re.compile(r'^@(?:\s(?P<text>.*))?$', re.DOTALL)
 chunk_invocation = re.compile(r'^(?P<indent>\s*)' + chunk_re.pattern + r'\s*$')
 ```
+
 
 Let's start by reading in the file given on the command line. We'll build up
 a map called "chunks", which will contain the chunk names and the lines of each chunk.
 
 
 ###### Reading in the file
+
 ```python
 chunkName = None
 chunks = {chunkName: []}
@@ -103,16 +106,24 @@ chunks = {chunkName: []}
 for line in infile:
     match = chunk_def.match(line)
     if match and not chunkName:
-        chunks[chunkName].append(line)
+        chunks[chunkName].append([match.group('name')])
         chunkName = match.group('name')
         chunks[chunkName] = []
     else:
-        if chunk_end.match(line):
+        match = chunk_end.match(line)
+        if match:
             chunkName = None
+            text = match.group('text')
+            if text:
+                try:
+                    chunks[chunkName][-1].append(text)
+                except (IndexError, AttributeError):
+                    pass
         else:
             line = chunk_at.sub('@', line)
             chunks[chunkName].append(line)
 ```
+
 
 
 
@@ -132,6 +143,7 @@ the command-line arguments given to the script:
 
 
 ###### Defining the command-line parser
+
 ```python
 cmd_line_parser = argparse.ArgumentParser('NoWeb command line options.')
 cmd_line_parser.add_argument('infile',         metavar='FILE',              help='input file to process, "-" for stdin')
@@ -150,7 +162,9 @@ _weave_options.add_argument('--github-syntax', metavar='LANGUAGE', help='use Git
 ```
 
 
+
 ###### Parsing the command-line arguments
+
 ```python
 args = cmd_line_parser.parse_args()
 
@@ -168,6 +182,7 @@ else:
 
 
 
+
 # RECURSIVELY EXPANDING THE OUTPUT CHUNK
 
 So far, so good. Now we need a recursive function to expand any chunks found
@@ -175,34 +190,56 @@ in the output chunk requested by the user. Take a deep breath.
 
 
 ###### Recursively expanding the output chunk
+
 ```python
 def expand(chunkName, indent=""):
     for line in chunks[chunkName]:
-        match = chunk_invocation.match(line)
+        if isinstance(line, basestring):
+            match = chunk_invocation.match(line)
+        else:
+            match = None
         if match:
             for line in expand(match.group('name'), indent + match.group('indent')):
                 yield line
         else:
-            match = chunk_def.match(line)
-            if match and args.weave:
-                if args.github_syntax:
-                    yield '\n###### %s\n```%s\n' % (match.group('name'), args.github_syntax,)
-                else:
-                    yield '\n    <<%s>>=\n' % (match.group('name'),)
-                for def_line in chunks[match.group('name')]:
-                    if not args.github_syntax:
-                        yield '    '
-                    yield def_line
-                if args.github_syntax:
-                    yield '```\n'
-                else:
-                    yield '    @\n'
-            elif line and line != '\n':
-                yield indent + line
+            if isinstance(line, list) and args.weave:
+                <<Weave chunks>>
             else:
+                # Only add indentation to non-empty lines
+                if line and line != '\n':
+                    yield indent
                 yield line
 ```
 
+
+When weaving chunks need to be written using Markdown code-block syntax. This either means
+indenting the block with 4 spaces. Alternatively when GitHub-flavoured Markdown is chosen
+to get language-specific syntax-highlighting we wrap the block in markers and mention the
+language to use for highlighting.
+
+
+###### Weave chunks
+
+```python
+# Add a heading with the chunk's name.
+yield '\n###### %s\n\n' % tuple(line[:1])
+
+if args.github_syntax:
+    yield '```%s\n' % (args.github_syntax,)
+
+for def_line in chunks[line[0]]:
+    if not args.github_syntax:
+        yield '    '
+    yield def_line
+
+if args.github_syntax:
+    yield '```\n'
+# Following text or separating new-line
+try:
+    yield line[1]
+except IndexError:
+    yield '\n'
+```
 
 
 
@@ -218,6 +255,7 @@ The last step is easy. We just call the recursive function and output the result
 
 
 ###### Outputting the chunks
+
 ```python
 if args.output == '-':
     outfile = sys.stdout
@@ -269,6 +307,7 @@ Here's how the pieces we have discussed fit together:
 
 
 ###### noweb.py
+
 ```python
 #!/usr/bin/env python
 
@@ -299,3 +338,4 @@ if __name__ == "__main__":
     <<Reading in the file>>
     <<Outputting the chunks>>
 ```
+

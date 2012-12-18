@@ -34,33 +34,42 @@ _weave_options.add_argument('--github-syntax', metavar='LANGUAGE', help='use Git
 chunk_re         = re.compile(r'<<(?P<name>[^>]+)>>')
 chunk_def        = re.compile(chunk_re.pattern + r'=')
 chunk_at         = re.compile(r'^@@(?=\s|$)')
-chunk_end        = re.compile(r'^@(?=\s|$)')
+chunk_end        = re.compile(r'^@(?:\s(?P<text>.*))?$', re.DOTALL)
 chunk_invocation = re.compile(r'^(?P<indent>\s*)' + chunk_re.pattern + r'\s*$')
 
 def expand(chunkName, indent=""):
     for line in chunks[chunkName]:
-        match = chunk_invocation.match(line)
+        if isinstance(line, basestring):
+            match = chunk_invocation.match(line)
+        else:
+            match = None
         if match:
             for line in expand(match.group('name'), indent + match.group('indent')):
                 yield line
         else:
-            match = chunk_def.match(line)
-            if match and args.weave:
+            if isinstance(line, list) and args.weave:
+                # Add a heading with the chunk's name.
+                yield '\n###### %s\n\n' % tuple(line[:1])
+
                 if args.github_syntax:
-                    yield '\n###### %s\n```%s\n' % (match.group('name'), args.github_syntax,)
-                else:
-                    yield '\n    <<%s>>=\n' % (match.group('name'),)
-                for def_line in chunks[match.group('name')]:
+                    yield '```%s\n' % (args.github_syntax,)
+
+                for def_line in chunks[line[0]]:
                     if not args.github_syntax:
                         yield '    '
                     yield def_line
+
                 if args.github_syntax:
                     yield '```\n'
-                else:
-                    yield '    @\n'
-            elif line and line != '\n':
-                yield indent + line
+                # Following text or separating new-line
+                try:
+                    yield line[1]
+                except IndexError:
+                    yield '\n'
             else:
+                # Only add indentation to non-empty lines
+                if line and line != '\n':
+                    yield indent
                 yield line
 
 if __name__ == "__main__":
@@ -76,12 +85,19 @@ if __name__ == "__main__":
     for line in infile:
         match = chunk_def.match(line)
         if match and not chunkName:
-            chunks[chunkName].append(line)
+            chunks[chunkName].append([match.group('name')])
             chunkName = match.group('name')
             chunks[chunkName] = []
         else:
-            if chunk_end.match(line):
+            match = chunk_end.match(line)
+            if match:
                 chunkName = None
+                text = match.group('text')
+                if text:
+                    try:
+                        chunks[chunkName][-1].append(text)
+                    except (IndexError, AttributeError):
+                        pass
             else:
                 line = chunk_at.sub('@', line)
                 chunks[chunkName].append(line)
