@@ -66,7 +66,52 @@ as input (noweb format) and extract code from it as output. For example,
 This will read in a file called hello.noweb and extract the code labelled "hello.php".
 We redirect the output into a hello.php file.
 
+# DEFINING THE READER
 
+In order to allow processing of multiple literate documents from the same program we wrap all parsing and
+code-generating functionaility in a single class.
+
+
+###### Defining the processor
+
+```python
+class NowebReader(object):
+    <<Defining the syntax>>
+
+    def __init__(self, file=None):
+        self.chunks = {None: []}
+
+        if file is not None:
+            self.read(file)
+
+    def read(self, file):
+        if isinstance(file, basestring):
+            infile = open(file)
+        else:
+            infile = file
+        try:
+            <<Reading in the file>>
+        finally:
+            if isinstance(file, basestring):
+                infile.close()
+
+    def expand(self, chunkName, indent="", weave=False, github_syntax=None):
+        <<Recursively expanding the output chunk>>
+
+    def write(self, chunkName, file=None, weave=False, github_syntax=None):
+        if isinstance(file, basestring) or file is None:
+            outfile = StringIO()
+        else:
+            outfile = file
+
+        <<Outputting the chunks>>
+
+        if file is None:
+            return outfile.getvalue()
+        elif isinstance(file, basestring):
+            with open(file, 'w') as f:
+                f.write(outfile.getvalue())
+```
 
 
 
@@ -108,27 +153,26 @@ a map called "chunks", which will contain the chunk names and the lines of each 
 
 ```python
 chunkName = None
-chunks = {chunkName: []}
 
-for line in infile:
-    match = chunk_def.match(line)
+for lnum, line in enumerate(infile):
+    match = self.chunk_def.match(line)
     if match and not chunkName:
-        chunks[chunkName].append([match.group('name')])
+        self.chunks[chunkName].append((lnum + 1, [match.group('name')]))
         chunkName = match.group('name')
-        chunks[chunkName] = []
+        self.chunks[chunkName] = []
     else:
-        match = chunk_end.match(line)
+        match = self.chunk_end.match(line)
         if match:
             chunkName = None
             text = match.group('text')
             if text:
                 try:
-                    chunks[chunkName][-1].append(text)
+                    self.chunks[chunkName][-1][-1].append((lnum + 1, text))
                 except (IndexError, AttributeError):
                     pass
         else:
-            line = chunk_at.sub('@', line)
-            chunks[chunkName].append(line)
+            line = self.chunk_at.sub('@', line)
+            self.chunks[chunkName].append((lnum + 1, line))
 ```
 
 
@@ -199,23 +243,22 @@ in the output chunk requested by the user. Take a deep breath.
 ###### Recursively expanding the output chunk
 
 ```python
-def expand(chunkName, indent=""):
-    for line in chunks[chunkName]:
-        if isinstance(line, basestring):
-            match = chunk_invocation.match(line)
+for lnum, line in self.chunks[chunkName]:
+    if isinstance(line, basestring):
+        match = self.chunk_invocation.match(line)
+    else:
+        match = None
+    if match:
+        for lnum, line in self.expand(match.group('name'), indent + match.group('indent'), weave):
+            yield lnum, line
+    else:
+        if isinstance(line, list) and weave:
+            <<Weave chunks>>
         else:
-            match = None
-        if match:
-            for line in expand(match.group('name'), indent + match.group('indent')):
-                yield line
-        else:
-            if isinstance(line, list) and args.weave:
-                <<Weave chunks>>
-            else:
-                # Only add indentation to non-empty lines
-                if line and line != '\n':
-                    yield indent
-                yield line
+            # Only add indentation to non-empty lines
+            if line and line != '\n':
+                line = indent + line
+            yield lnum, line
 ```
 
 
@@ -229,23 +272,25 @@ language to use for highlighting.
 
 ```python
 # Add a heading with the chunk's name.
-yield '\n###### %s\n\n' % tuple(line[:1])
+yield lnum, '\n'
+yield lnum, '###### %s\n' % tuple(line[:1])
+yield lnum, '\n'
 
-if args.github_syntax:
-    yield '```%s\n' % (args.github_syntax,)
+if github_syntax:
+    yield lnum, '```%s\n' % (github_syntax,)
 
-for def_line in chunks[line[0]]:
-    if not args.github_syntax:
-        yield '    '
-    yield def_line
+for def_lnum, def_line in self.chunks[line[0]]:
+    if not github_syntax:
+        def_line = '    ' + def_line
+    yield def_lnum, def_line
 
-if args.github_syntax:
-    yield '```\n'
+if github_syntax:
+    yield lnum, '```\n'
 # Following text or separating new-line
 try:
-    yield line[1]
+    yield line[1][0], line[1][1]
 except IndexError:
-    yield '\n'
+    yield lnum, '\n'
 ```
 
 
@@ -264,16 +309,8 @@ The last step is easy. We just call the recursive function and output the result
 ###### Outputting the chunks
 
 ```python
-if args.output == '-':
-    outfile = sys.stdout
-else:
-    outfile = StringIO()
-
-for line in expand(args.chunk):
+for _, line in self.expand(chunkName, weave=weave, github_syntax=github_syntax):
     outfile.write(line)
-if args.output != '-':
-    with open(args.output, 'w') as f:
-        f.write(outfile.getvalue())
 ```
 
 And we're done. We now have a tool to extract code from a literate programming document.
@@ -333,14 +370,17 @@ try:
     from cStringIO import StringIO
 except ImportError:
     from StringIO import StringIO
-<<Defining the command-line parser>>
-<<Defining the syntax>>
 
-<<Recursively expanding the output chunk>>
+<<Defining the command-line parser>>
+<<Defining the processor>>
 
 if __name__ == "__main__":
     <<Parsing the command-line arguments>>
-    <<Reading in the file>>
-    <<Outputting the chunks>>
+    doc = NowebReader()
+    doc.read(infile)
+    out = args.output
+    if out == '-':
+        out = sys.stdout
+    doc.write(args.chunk, out, weave=args.weave, github_syntax=args.github_syntax)
 ```
 
