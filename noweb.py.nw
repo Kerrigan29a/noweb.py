@@ -335,7 +335,7 @@ except ImportError:
 <<Defining the command-line parser>>
 <<Defining the processor>>
 
-if __name__ == "__main__":
+def main():
     <<Parsing the command-line arguments>>
     doc = NowebReader()
     doc.read(infile)
@@ -343,4 +343,7 @@ if __name__ == "__main__":
     if out == '-':
         out = sys.stdout
     doc.write(args.chunk, out, weave=args.weave, github_syntax=args.github_syntax)
+
+if __name__ == "__main__":
+    main()
 @

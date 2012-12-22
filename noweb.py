@@ -127,7 +127,7 @@ class NowebReader(object):
             with open(file, 'w') as f:
                 f.write(outfile.getvalue())
 
-if __name__ == "__main__":
+def main():
     args = cmd_line_parser.parse_args()
 
     if args.infile == '-':
@@ -140,3 +140,6 @@ if __name__ == "__main__":
     if out == '-':
         out = sys.stdout
     doc.write(args.chunk, out, weave=args.weave, github_syntax=args.github_syntax)
+
+if __name__ == "__main__":
+    main()
