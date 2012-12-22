@@ -6,7 +6,6 @@ noweb.py: noweb.py.nw
 	set -x ; \
 	./noweb.py -R $@ $< -o $$tmpfile && \
 	python $$tmpfile -R $@ $< -o $@ && \
-	cat < $$tmpfile > $@ ; \
 	r=$$? ; \
 	rm $$tmpfile ; \
 	exit $$r
