@@ -80,6 +80,7 @@ class NowebReader(object):
 
     def __init__(self, file=None):
         self.chunks = {None: []}
+        self.last_fname = None
 
         if file is not None:
             self.read(file)
@@ -87,8 +88,10 @@ class NowebReader(object):
     def read(self, file):
         if isinstance(file, basestring):
             infile = open(file)
+            self.last_fname = file
         else:
             infile = file
+            self.last_fname = None
         try:
             <<Reading in the file>>
         finally:
@@ -219,10 +222,9 @@ _weave_options.add_argument('--github-syntax', metavar='LANGUAGE', help='use Git
 ```python
 args = cmd_line_parser.parse_args()
 
+infile = args.infile
 if args.infile == '-':
     infile = sys.stdin
-else:
-    infile = open(args.infile, 'r')
 ```
 
 
@@ -249,7 +251,15 @@ for lnum, line in self.chunks[chunkName]:
     else:
         match = None
     if match:
-        for lnum, line in self.expand(match.group('name'), indent + match.group('indent'), weave):
+        sub_chunk = match.group('name')
+        sub_indent = indent + match.group('indent')
+        if sub_chunk not in self.chunks:
+            err_pos = ''
+            if self.last_fname:
+                err_pos = self.last_fname + ':'
+            err_pos += '%u' % (lnum,)
+            raise RuntimeError("%s: reference to non-existent chunk '%s'" % (err_pos, sub_chunk))
+        for lnum, line in self.expand(sub_chunk, sub_indent, weave):
             yield lnum, line
     else:
         if isinstance(line, list) and weave:
@@ -316,13 +326,270 @@ for _, line in self.expand(chunkName, weave=weave, github_syntax=github_syntax):
 And we're done. We now have a tool to extract code from a literate programming document.
 Try it on this blog post!
 
+# DIRECTLY IMPORTING FROM PYTHON
+
+In order to be able to import Noweb sources directly in Python a custom ImportHook is provided. This hook conforms to
+PEP-302: the Importer Protocol.
+
+
+###### ImportHook (PEP-302)
+
+```python
+class ImportHook(object):
+    <<Hook registration methods>>
+
+    def _get_module_info(self, fullname):
+        prefix = fullname.replace('.', '/')
+        # Is it a regular module?
+        info = self._find_module_file(prefix, fullname)
+        if info is not None:
+            info['ispkg'] = False
+            return info
+
+        # Is it a package instead?
+        prefix = os.path.join(prefix, "__init__")
+        info = self._find_module_file(prefix, fullname)
+        if info is not None:
+            info['ispkg'] = True
+            return info
+
+        # Can't find the module
+        raise ImportError(fullname)
+
+    def _find_module_file(self, prefix, fullname):
+        try:
+            chunk = None
+            if   fullname         in self.doc.chunks:
+                chunk = fullname
+            elif fullname + '.py' in self.doc.chunks:
+                chunk = fullname + '.py'
+            if chunk:
+                bc_file = os.path.join(os.path.dirname(self.path), fullname + '.py')
+                return dict(path=self.path, chunk=chunk)
+        except AttributeError:
+            pass
+
+        path = prefix + '.py.nw'
+        try:
+            statinfo = os.stat(path)
+            chunk = os.path.basename(os.path.realpath(path))[:-len('.nw')]
+            if stat.S_ISREG(statinfo.st_mode):
+                return dict(path=path, chunk=chunk)
+        except OSError:
+            pass
+
+        return None
+
+    <<Finding modules and their loaders>>
+    <<Loading modules>>
+    <<Importer Protocol Extensions>>
+```
+
+
+Part of the Importer Protocol entails finding out whether a given name can be imported and if so giving Python a
+*loader* to import it with. We implement the *finder* and *loader* entities using the same class and object.
+
+
+###### Finding modules and their loaders
+
+```python
+    def find_module(self, fullname, path=None):
+        """Try to discover if we can find the given module."""
+        try:
+            self._get_module_info(fullname)
+        except ImportError:
+            return None
+        else:
+            return self
+```
+
+
+Loading of the object is done by deferring most work to other functions. All we do directly is constructing a module if
+loading of it from the given chunk was succesful.
+
+
+###### Loading modules
+
+```python
+def load_module(self, fullname):
+    """Load the specified module.
+
+    This method locates the file and chunk for the specified module, loads and
+    executes it and returns the created module object.
+    """
+    try:
+        return sys.modules[fullname]
+    except KeyError:
+        pass
+
+    info = self._get_module_info(fullname)
+    code = self.get_code(fullname, info)
+    if code is None:
+        raise ImportError(fullname)
+    module = imp.new_module(fullname)
+    module.__file__ = info['chunk']
+    module.__loader__ = self
+    sys.modules[fullname] = module
+    try:
+        exec code in module.__dict__
+        if self.path is None:
+            module.__path__ = []
+        else:
+            module.__path__ = [self.path]
+    except:
+        sys.modules.pop(fullname, None)
+        raise
+    return module
+```
+
+
+In order to be able to use the ImportHook easily it has `install()` and `uninstall()` methods that'll take care of
+hooking into Python's `meta_path` and `path_hooks`. First they check to see whether ImportHook's already present and
+then take appropriate action to add/remove itself to the list.
+
+The `meta_path` hook causes files with a `.py.nw` extension to be imported transparently *if* they have a named chunk
+with `$file.py` as name where $file is the basename of the `.py.nw` file. Alternatively when sys.path contains a
+filename ending in `.nw` chunks can be imported directly by specifying their name.
+
+
+###### Hook registration methods
+
+```python
+@classmethod
+def install(cls):
+    """Install this class into the import machinery."""
+    for imp in sys.meta_path:
+        try:
+            if isinstance(imp, cls):
+                break
+        except TypeError:
+            pass
+    else:
+        sys.meta_path.append(cls())
+    for imp in sys.path_hooks:
+        try:
+            if issubclass(cls, imp):
+                break
+        except TypeError:
+            pass
+    else:
+        sys.path_hooks.append(cls)
+        sys.path_importer_cache.clear()
+
+@classmethod
+def uninstall(cls):
+    """Uninstall this class from the import machinery."""
+    to_rem = []
+    for imp in sys.meta_path:
+        try:
+            if isinstance(imp, cls):
+                to_rem.append(imp)
+                break
+        except TypeError:
+            pass
+    for imp in to_rem:
+        sys.meta_path.remove(imp)
+    to_rem = []
+    for imp in sys.path_hooks:
+        try:
+            if issubclass(cls, imp):
+                to_rem.append(imp)
+        except TypeError:
+            pass
+    for imp in to_rem:
+        sys.path_hooks.remove(imp)
+    sys.path_importer_cache.clear()
+
+def __init__(self, path=None):
+    self.doc = None
+    self.path = path
+    if self.path is None:
+        return
+
+    try:
+        if not self.path.endswith('.nw') or not stat.S_ISREG(os.stat(self.path).st_mode):
+            raise ImportError(path)
+        self.doc = NowebReader()
+        self.doc.read(self.path)
+    except (IOError, OSError):
+        raise ImportError(path)
+```
+
+
+The Importer Protocol defines three optional extensions. One is to retrieve data files, the second is to support module
+packaging tools and/or tools that analyze module dependencies (for example Freeze), while the last is to support
+execution of modules as scripts.
+
+We implement all of these. Getting data files is implemented as getting named chunks. Module introspection includes
+compiling of the code. Lastly getting the filename (or `__file__`'s value) is implemented as getting the containing
+chuck's name.
+
+
+###### Importer Protocol Extensions
+
+```python
+def get_data(self, path):
+    if self.doc is None or not path in self.doc.chunks:
+        raise IOError(path)
+    return self.doc.write(path)
+
+def is_package(self, fullname, info=None):
+    if info is None:
+        info = self._get_module_info(fullname)
+    return info['ispkg']
+
+def get_code(self, fullname, info=None):
+    if info is None:
+        info = self._get_module_info(fullname)
+    doc = self.doc
+    if doc is None:
+        with open(info['path'], 'U') as f:
+            doc = NowebReader()
+            doc.read(f)
+
+    # Convert to string, while building a line-number conversion table
+    outsrc = StringIO()
+    line_map = {}
+    for outlnum, (inlnum, line) in enumerate(doc.expand(info['chunk'])):
+        outlnum += 1
+        line_map[outlnum] = inlnum
+        outsrc.write(line)
+
+    # Parse output string to AST
+    node = ast.parse(outsrc.getvalue(), info['path'], 'exec')
+    # Rewrite line numbers on AST
+    node = RewriteLine(line_map).visit(node)
+    return compile(node, info['path'], 'exec')
+
+def get_source(self, fullname, info=None):
+    if info is None:
+        info = self._get_module_info(fullname)
+    with open(info['path'], 'U') as f:
+        return f.read()
+
+def get_filename(self, fullname, info=None):
+    if info is None:
+        info = self._get_module_info(fullname)
+    return info['path']
+```
 
 
 
+###### AST Line-number re-writer
 
+```python
+class RewriteLine(ast.NodeTransformer):
+    def __init__(self, line_map):
+        self.line_map = line_map
 
-
-
+    def visit(self, node):
+        try:
+            node = copy.copy(node)
+            node.lineno = self.line_map[node.lineno]
+        except (AttributeError,KeyError):
+            pass
+        return super(RewriteLine, self).visit(node)
+```
 
 
 # APPENDIX I: GENERATING THE SCRIPT
@@ -364,7 +631,12 @@ document.
 """
 
 import argparse
+import ast
+import copy
+import imp
+import os
 import re
+import stat
 import sys
 try:
     from cStringIO import StringIO
@@ -372,6 +644,8 @@ except ImportError:
     from StringIO import StringIO
 
 <<Defining the command-line parser>>
+<<AST Line-number re-writer>>
+<<ImportHook (PEP-302)>>
 <<Defining the processor>>
 
 def main():
@@ -384,6 +658,13 @@ def main():
     doc.write(args.chunk, out, weave=args.weave, github_syntax=args.github_syntax)
 
 if __name__ == "__main__":
-    main()
+    # Delete the pure-Python version of noweb to prevent cache retrieval
+    sys.modules.pop('noweb', None)
+
+    # Use noweb's loader to load itself
+    noweb = ImportHook().load_module('noweb')
+
+    # Exceptions from within noweb should now be linked to the .nw source-file
+    noweb.main()
 ```
 
