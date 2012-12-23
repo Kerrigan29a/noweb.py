@@ -662,7 +662,10 @@ if __name__ == "__main__":
     sys.modules.pop('noweb', None)
 
     # Use noweb's loader to load itself
-    noweb = ImportHook().load_module('noweb')
+    try:
+        noweb = ImportHook().load_module('noweb')
+    except:
+        import __main__ as noweb
 
     # Exceptions from within noweb should now be linked to the .nw source-file
     noweb.main()

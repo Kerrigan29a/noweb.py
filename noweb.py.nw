@@ -284,6 +284,8 @@ except IndexError:
 The last step is easy. We just call the recursive function and output the result.
 
 <<Outputting the chunks>>=
+if chunkName not in self.chunks:
+    raise RuntimeError("No such chunk in document '%s'" % (chunkName,))
 for _, line in self.expand(chunkName, weave=weave, github_syntax=github_syntax):
     outfile.write(line)
 @
@@ -599,7 +601,10 @@ if __name__ == "__main__":
     sys.modules.pop('noweb', None)
 
     # Use noweb's loader to load itself
-    noweb = ImportHook().load_module('noweb')
+    try:
+        noweb = ImportHook().load_module('noweb')
+    except:
+        import __main__ as noweb
 
     # Exceptions from within noweb should now be linked to the .nw source-file
     noweb.main()
