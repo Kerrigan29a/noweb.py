@@ -5,7 +5,7 @@ noweb.py: noweb.py.nw
 	@tmpfile=`mktemp` ; \
 	set -x ; \
 	./noweb.py -R $@ $< -o $$tmpfile && \
-	python $$tmpfile -R $@ $< -o $@ && \
+	python $$tmpfile -R $@ $< -o $@ ; \
 	r=$$? ; \
 	rm $$tmpfile ; \
 	exit $$r
