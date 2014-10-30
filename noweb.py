@@ -25,20 +25,29 @@ except ImportError:
     from StringIO import StringIO
 
 cmd_line_parser = argparse.ArgumentParser('NoWeb command line options.')
-cmd_line_parser.add_argument('infile',         metavar='FILE',              help='input file to process, "-" for stdin (default: %(default)s)')
-cmd_line_parser.add_argument('-o', '--output', metavar='FILE', default='-', help='file to output to, "-" for stdout (default: %(default)s)')
-cmd_line_parser.add_argument('-e', '--encoding', metavar='ENCODING', default='utf-8', help='Input and output encoding (default: %(default)s)')
+cmd_line_parser.add_argument('infile', metavar='FILE',
+    help='input file to process, "-" for stdin (default: %(default)s)')
+cmd_line_parser.add_argument('-o', '--output', metavar='FILE', default='-',
+    help='file to output to, "-" for stdout (default: %(default)s)')
+cmd_line_parser.add_argument('-e', '--encoding', metavar='ENCODING',
+    default='utf-8',
+    help='Input and output encoding (default: %(default)s)')
 
 #FIXME: Apparently Python doesn't want groups within groups?
 #_output_mode_dependent = cmd_line_parser.add_mutually_exclusive_group(required=True)
 _output_mode_dependent = cmd_line_parser
 
-_tangle_options = _output_mode_dependent.add_argument_group('tangle', 'Tangle options')
-_tangle_options.add_argument('-R', '--chunk', metavar='CHUNK',    help='name of chunk to write to stdout')
+_tangle_options = _output_mode_dependent.add_argument_group('tangle',
+    'Tangle options')
+_tangle_options.add_argument('-R', '--chunk', metavar='CHUNK',
+    help='name of chunk to write to stdout')
 
-_weave_options  = _output_mode_dependent.add_argument_group('weave',  'Weave options')
-_weave_options.add_argument('-w', '--weave', action='store_true', help='weave output instead of tangling')
-_weave_options.add_argument('--default-code-syntax', metavar='LANGUAGE', help='use this syntax for code chunks')
+_weave_options  = _output_mode_dependent.add_argument_group('weave',
+    'Weave options')
+_weave_options.add_argument('-w', '--weave', action='store_true',
+    help='weave output instead of tangling')
+_weave_options.add_argument('--default-code-syntax', metavar='LANGUAGE',
+    help='use this syntax for code chunks')
 class RewriteLine(ast.NodeTransformer):
     def __init__(self, line_map):
         self.line_map = line_map
@@ -312,7 +321,8 @@ class NowebReader(object):
                     if self.last_fname:
                         err_pos = self.last_fname + ':'
                     err_pos += '%u' % (lnum,)
-                    raise RuntimeError("%s: reference to non-existent chunk '%s'" % (err_pos, sub_chunk))
+                    raise RuntimeError(
+                        "%s: reference to non-existent chunk '%s'" % (err_pos, sub_chunk))
                 for lnum, line in self.expand(sub_chunk, sub_indent, weave):
                     yield lnum, line
             else:
@@ -377,7 +387,8 @@ def main():
     out = args.output
     if out == '-':
         out = sys.stdout
-    doc.write(args.chunk, out, weave=args.weave, default_code_syntax=args.default_code_syntax)
+    doc.write(args.chunk, out, weave=args.weave,
+        default_code_syntax=args.default_code_syntax)
 
 if __name__ == "__main__":
     # Delete the pure-Python version of noweb to prevent cache retrieval
