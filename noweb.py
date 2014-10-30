@@ -24,30 +24,6 @@ try:
 except ImportError:
     from StringIO import StringIO
 
-cmd_line_parser = argparse.ArgumentParser('NoWeb command line options.')
-cmd_line_parser.add_argument('infile', metavar='FILE',
-    help='input file to process, "-" for stdin (default: %(default)s)')
-cmd_line_parser.add_argument('-o', '--output', metavar='FILE', default='-',
-    help='file to output to, "-" for stdout (default: %(default)s)')
-cmd_line_parser.add_argument('-e', '--encoding', metavar='ENCODING',
-    default='utf-8',
-    help='Input and output encoding (default: %(default)s)')
-
-#FIXME: Apparently Python doesn't want groups within groups?
-#_output_mode_dependent = cmd_line_parser.add_mutually_exclusive_group(required=True)
-_output_mode_dependent = cmd_line_parser
-
-_tangle_options = _output_mode_dependent.add_argument_group('tangle',
-    'Tangle options')
-_tangle_options.add_argument('-R', '--chunk', metavar='CHUNK',
-    help='name of chunk to write to stdout')
-
-_weave_options  = _output_mode_dependent.add_argument_group('weave',
-    'Weave options')
-_weave_options.add_argument('-w', '--weave', action='store_true',
-    help='weave output instead of tangling')
-_weave_options.add_argument('--default-code-syntax', metavar='LANGUAGE',
-    help='use this syntax for code chunks')
 class RewriteLine(ast.NodeTransformer):
     def __init__(self, line_map):
         self.line_map = line_map
@@ -114,7 +90,7 @@ class ImportHook(object):
         try:
             if not self.path.endswith('.nw') or not stat.S_ISREG(os.stat(self.path).st_mode):
                 raise ImportError(path)
-            self.doc = NowebReader()
+            self.doc = Reader()
             self.doc.read(self.path)
         except (IOError, OSError):
             raise ImportError(path)
@@ -214,7 +190,7 @@ class ImportHook(object):
         doc = self.doc
         if doc is None:
             with open(info['path'], 'U') as f:
-                doc = NowebReader()
+                doc = Reader()
                 doc.read(f)
 
         # Convert to string, while building a line-number conversion table
@@ -241,7 +217,7 @@ class ImportHook(object):
         if info is None:
             info = self._get_module_info(fullname)
         return info['path']
-class NowebReader(object):
+class Reader(object):
     chunk_re         = re.compile(r'<<(?:(?P<syntax>[^:]+):)?(?P<name>[^>]+)>>')
     chunk_def        = re.compile(chunk_re.pattern + r'=')
     chunk_at         = re.compile(r'^@@(?=\s|$)')
@@ -263,15 +239,15 @@ class NowebReader(object):
 
     def read(self, file):
         if isinstance(file, basestring):
-            infile = open(file)
+            input = open(file)
             self.last_fname = file
         else:
-            infile = file
+            input = file
             self.last_fname = None
         try:
             chunkName = None
 
-            for lnum, line in enumerate(infile):
+            for lnum, line in enumerate(input):
                 if self.encoding:
                     line = line.decode(self.encoding)
                 if lnum == 0:
@@ -305,7 +281,7 @@ class NowebReader(object):
                         self.chunks[chunkName]["lines"].append((lnum + 1, line))
         finally:
             if isinstance(file, basestring):
-                infile.close()
+                input.close()
 
     def expand(self, chunkName, indent="", weave=False, default_code_syntax=None):
         for lnum, line in self.chunks[chunkName]["lines"]:
@@ -377,18 +353,48 @@ class NowebReader(object):
                 f.write(txt)
 
 def main():
-    args = cmd_line_parser.parse_args()
 
-    infile = args.infile
-    if args.infile == '-':
-        infile = sys.stdin
-    doc = NowebReader(encoding=args.encoding)
-    doc.read(infile)
+    parser = argparse.ArgumentParser('NoWeb command line options.')
+    subparsers = parser.add_subparsers(help='Working modes')
+    parser.add_argument('input', metavar='FILE',
+        help='input file to process, "-" for stdin')
+    parser.add_argument('-o', '--output', metavar='FILE', default='-',
+        help='file to output to, "-" for stdout (default: %(default)s)')
+    parser.add_argument('-e', '--encoding', metavar='ENCODING',
+        default='utf-8',
+        help='Input and output encoding (default: %(default)s)')
+
+    # Create the parser for the "tangle" command
+    parser_tangle = subparsers.add_parser('tangle', help='tangle help')
+    parser_tangle.add_argument('-R', '--chunk', metavar='CHUNK',
+        help='name of chunk to write to stdout')
+
+    # XXX: This is just a dirty fix to change in the future
+    parser_tangle.set_defaults(weave_mode=False)
+
+    # Create the parser for the "weave" command
+    parser_weave = subparsers.add_parser('weave', help='weave help')
+    parser_weave.add_argument('--default-code-syntax', metavar='LANGUAGE',
+        help='use this syntax for code chunks')
+
+    # XXX: This is just a dirty fix to change in the future
+    parser_weave.set_defaults(weave_mode=True)
+
+    args = parser.parse_args()
+
+    input = args.input
+    if args.input == '-':
+        input = sys.stdin
+    doc = Reader(encoding=args.encoding)
+    doc.read(input)
     out = args.output
     if out == '-':
         out = sys.stdout
-    doc.write(args.chunk, out, weave=args.weave,
-        default_code_syntax=args.default_code_syntax)
+    doc.write(
+        None if args.weave_mode else args.chunk,
+        out,
+        weave=args.weave_mode,
+        default_code_syntax=args.default_code_syntax if args.weave_mode else None)
 
 if __name__ == "__main__":
     # Delete the pure-Python version of noweb to prevent cache retrieval

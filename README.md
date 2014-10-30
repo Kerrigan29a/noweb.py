@@ -93,7 +93,7 @@ class.
 ###### Defining the processor
 
 ```python
-class NowebReader(object):
+class Reader(object):
     <<Defining the syntax>>
 
     def __init__(self, file=None, encoding=None):
@@ -106,16 +106,16 @@ class NowebReader(object):
 
     def read(self, file):
         if isinstance(file, basestring):
-            infile = open(file)
+            input = open(file)
             self.last_fname = file
         else:
-            infile = file
+            input = file
             self.last_fname = None
         try:
             <<Reading in the file>>
         finally:
             if isinstance(file, basestring):
-                infile.close()
+                input.close()
 
     def expand(self, chunkName, indent="", weave=False, default_code_syntax=None):
         <<Recursively expanding the output chunk>>
@@ -183,7 +183,7 @@ chunk.
 ```python
 chunkName = None
 
-for lnum, line in enumerate(infile):
+for lnum, line in enumerate(input):
     if self.encoding:
         line = line.decode(self.encoding)
     if lnum == 0:
@@ -232,30 +232,33 @@ parse the command-line arguments given to the script:
 ###### Defining the command-line parser
 
 ```python
-cmd_line_parser = argparse.ArgumentParser('NoWeb command line options.')
-cmd_line_parser.add_argument('infile', metavar='FILE',
-    help='input file to process, "-" for stdin (default: %(default)s)')
-cmd_line_parser.add_argument('-o', '--output', metavar='FILE', default='-',
+parser = argparse.ArgumentParser('NoWeb command line options.')
+subparsers = parser.add_subparsers(help='Working modes')
+parser.add_argument('input', metavar='FILE',
+    help='input file to process, "-" for stdin')
+parser.add_argument('-o', '--output', metavar='FILE', default='-',
     help='file to output to, "-" for stdout (default: %(default)s)')
-cmd_line_parser.add_argument('-e', '--encoding', metavar='ENCODING',
+parser.add_argument('-e', '--encoding', metavar='ENCODING',
     default='utf-8',
     help='Input and output encoding (default: %(default)s)')
 
-#FIXME: Apparently Python doesn't want groups within groups?
-#_output_mode_dependent = cmd_line_parser.add_mutually_exclusive_group(required=True)
-_output_mode_dependent = cmd_line_parser
-
-_tangle_options = _output_mode_dependent.add_argument_group('tangle',
-    'Tangle options')
-_tangle_options.add_argument('-R', '--chunk', metavar='CHUNK',
+# Create the parser for the "tangle" command
+parser_tangle = subparsers.add_parser('tangle', help='tangle help')
+parser_tangle.add_argument('-R', '--chunk', metavar='CHUNK',
     help='name of chunk to write to stdout')
 
-_weave_options  = _output_mode_dependent.add_argument_group('weave',
-    'Weave options')
-_weave_options.add_argument('-w', '--weave', action='store_true',
-    help='weave output instead of tangling')
-_weave_options.add_argument('--default-code-syntax', metavar='LANGUAGE',
+# XXX: This is just a dirty fix to change in the future
+parser_tangle.set_defaults(weave_mode=False)
+
+# Create the parser for the "weave" command
+parser_weave = subparsers.add_parser('weave', help='weave help')
+parser_weave.add_argument('--default-code-syntax', metavar='LANGUAGE',
     help='use this syntax for code chunks')
+
+# XXX: This is just a dirty fix to change in the future
+parser_weave.set_defaults(weave_mode=True)
+
+args = parser.parse_args()
 ```
 
 
@@ -263,11 +266,12 @@ _weave_options.add_argument('--default-code-syntax', metavar='LANGUAGE',
 ###### Parsing the command-line arguments
 
 ```python
-args = cmd_line_parser.parse_args()
 
-infile = args.infile
-if args.infile == '-':
-    infile = sys.stdin
+<<Defining the command-line parser>>
+
+input = args.input
+if args.input == '-':
+    input = sys.stdin
 ```
 
 
@@ -555,7 +559,7 @@ def __init__(self, path=None):
     try:
         if not self.path.endswith('.nw') or not stat.S_ISREG(os.stat(self.path).st_mode):
             raise ImportError(path)
-        self.doc = NowebReader()
+        self.doc = Reader()
         self.doc.read(self.path)
     except (IOError, OSError):
         raise ImportError(path)
@@ -592,7 +596,7 @@ def get_code(self, fullname, info=None):
     doc = self.doc
     if doc is None:
         with open(info['path'], 'U') as f:
-            doc = NowebReader()
+            doc = Reader()
             doc.read(f)
 
     # Convert to string, while building a line-number conversion table
@@ -687,20 +691,22 @@ try:
 except ImportError:
     from StringIO import StringIO
 
-<<Defining the command-line parser>>
 <<AST Line-number re-writer>>
 <<ImportHook (PEP-302)>>
 <<Defining the processor>>
 
 def main():
     <<Parsing the command-line arguments>>
-    doc = NowebReader(encoding=args.encoding)
-    doc.read(infile)
+    doc = Reader(encoding=args.encoding)
+    doc.read(input)
     out = args.output
     if out == '-':
         out = sys.stdout
-    doc.write(args.chunk, out, weave=args.weave,
-        default_code_syntax=args.default_code_syntax)
+    doc.write(
+        None if args.weave_mode else args.chunk,
+        out,
+        weave=args.weave_mode,
+        default_code_syntax=args.default_code_syntax if args.weave_mode else None)
 
 if __name__ == "__main__":
     # Delete the pure-Python version of noweb to prevent cache retrieval
