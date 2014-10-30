@@ -10,11 +10,8 @@ me.
 ---
 # TODO
 - [ ] Rewrite the documentation to reflect the new changes.
-<!--- TODO: Rewrite the documentation to reflect the new changes -->
 - [ ] Change/Delete [Download](#download)
-<!--- TODO: Change/Delete "Download" -->
 - [ ] Change/Delete [Appendix I](#appendix-i-generating-the-script)
-<!--- TODO: Change/Delete "Appendix I" -->
 ---
 
 This executable document first appeared as a blog post on
