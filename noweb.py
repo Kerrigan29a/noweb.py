@@ -1,7 +1,9 @@
 #!/usr/bin/env python
+# -*- coding: utf-8 -*-
 
 # Copyright (c) 2010  Jonathan Aquino (jonathan.aquino@gmail.com)
 # Copyright (c) 2012  Giel van Schijndel (me@mortis.eu)
+# Copyright (c) 2014  Javier Escalada Gómez (kerrigan29a@gmail.com)
 
 """
 This program extracts code from a literate programming document in "noweb"
@@ -23,8 +25,9 @@ except ImportError:
     from StringIO import StringIO
 
 cmd_line_parser = argparse.ArgumentParser('NoWeb command line options.')
-cmd_line_parser.add_argument('infile',         metavar='FILE',              help='input file to process, "-" for stdin')
-cmd_line_parser.add_argument('-o', '--output', metavar='FILE', default='-', help='file to output to, "-" for stdout')
+cmd_line_parser.add_argument('infile',         metavar='FILE',              help='input file to process, "-" for stdin (default: %(default)s)')
+cmd_line_parser.add_argument('-o', '--output', metavar='FILE', default='-', help='file to output to, "-" for stdout (default: %(default)s)')
+cmd_line_parser.add_argument('-e', '--encoding', metavar='ENCODING', default='utf-8', help='Input and output encoding (default: %(default)s)')
 
 #FIXME: Apparently Python doesn't want groups within groups?
 #_output_mode_dependent = cmd_line_parser.add_mutually_exclusive_group(required=True)
@@ -35,7 +38,7 @@ _tangle_options.add_argument('-R', '--chunk', metavar='CHUNK',    help='name of 
 
 _weave_options  = _output_mode_dependent.add_argument_group('weave',  'Weave options')
 _weave_options.add_argument('-w', '--weave', action='store_true', help='weave output instead of tangling')
-_weave_options.add_argument('--github-syntax', metavar='LANGUAGE', help='use GitHub-Flavoured MarkDown as output for chunks')
+_weave_options.add_argument('--default-code-syntax', metavar='LANGUAGE', help='use this syntax for code chunks')
 class RewriteLine(ast.NodeTransformer):
     def __init__(self, line_map):
         self.line_map = line_map
@@ -211,7 +214,7 @@ class ImportHook(object):
         for outlnum, (inlnum, line) in enumerate(doc.expand(info['chunk'])):
             outlnum += 1
             line_map[outlnum] = inlnum
-            outsrc.write(line)
+            outsrc.write(line.encode(doc.encoding))
 
         # Parse output string to AST
         node = ast.parse(outsrc.getvalue(), info['path'], 'exec')
@@ -230,15 +233,21 @@ class ImportHook(object):
             info = self._get_module_info(fullname)
         return info['path']
 class NowebReader(object):
-    chunk_re         = re.compile(r'<<(?P<name>[^>]+)>>')
+    chunk_re         = re.compile(r'<<(?:(?P<syntax>[^:]+):)?(?P<name>[^>]+)>>')
     chunk_def        = re.compile(chunk_re.pattern + r'=')
     chunk_at         = re.compile(r'^@@(?=\s|$)')
     chunk_end        = re.compile(r'^@(?:\s(?P<text>.*))?$', re.DOTALL)
     chunk_invocation = re.compile(r'^(?P<indent>\s*)' + chunk_re.pattern + r'\s*$')
+    firstline_re     = re.compile(r'^\s*.*\s*literate:\s*(?:'
+        + r'(?:syntax\s*=\s*(?P<syntax>[a-zA-Z0-9_-]*))|'
+        + r'(?:encoding\s*=\s*(?P<encoding>[a-zA-Z0-9_-]*))|'
+        + r'\s*'
+        + r')*.*\s*$')
 
-    def __init__(self, file=None):
-        self.chunks = {None: []}
+    def __init__(self, file=None, encoding=None):
+        self.chunks = {None: {"syntax":"text", "lines":[]}}
         self.last_fname = None
+        self.encoding = encoding
 
         if file is not None:
             self.read(file)
@@ -254,11 +263,24 @@ class NowebReader(object):
             chunkName = None
 
             for lnum, line in enumerate(infile):
+                if self.encoding:
+                    line = line.decode(self.encoding)
+                if lnum == 0:
+                    match = self.firstline_re.match(line)
+                    if match:
+                        options = match.groupdict()
+                        encoding = options["encoding"]
+                        if encoding:
+                            self.encoding = encoding
+                        # TODO: Do something with options["syntax"]
+                        continue
                 match = self.chunk_def.match(line)
                 if match and not chunkName:
-                    self.chunks[chunkName].append((lnum + 1, [match.group('name')]))
+                    self.chunks[chunkName]["lines"].append((lnum + 1, [match.group('name')]))
                     chunkName = match.group('name')
-                    self.chunks[chunkName] = []
+                    chunkSyntax = match.group('syntax')
+
+                    self.chunks[chunkName] = {"syntax":chunkSyntax, "lines":[]}
                 else:
                     match = self.chunk_end.match(line)
                     if match:
@@ -266,18 +288,18 @@ class NowebReader(object):
                         text = match.group('text')
                         if text:
                             try:
-                                self.chunks[chunkName][-1][-1].append((lnum + 1, text))
+                                self.chunks[chunkName]["lines"][-1][-1].append((lnum + 1, text))
                             except (IndexError, AttributeError):
                                 pass
                     else:
                         line = self.chunk_at.sub('@', line)
-                        self.chunks[chunkName].append((lnum + 1, line))
+                        self.chunks[chunkName]["lines"].append((lnum + 1, line))
         finally:
             if isinstance(file, basestring):
                 infile.close()
 
-    def expand(self, chunkName, indent="", weave=False, github_syntax=None):
-        for lnum, line in self.chunks[chunkName]:
+    def expand(self, chunkName, indent="", weave=False, default_code_syntax=None):
+        for lnum, line in self.chunks[chunkName]["lines"]:
             if isinstance(line, basestring):
                 match = self.chunk_invocation.match(line)
             else:
@@ -295,20 +317,23 @@ class NowebReader(object):
                     yield lnum, line
             else:
                 if isinstance(line, list) and weave:
+                    currentChunkName = " ".join(line[:1])
+
                     # Add a heading with the chunk's name.
                     yield lnum, '\n'
-                    yield lnum, '###### %s\n' % tuple(line[:1])
+                    yield lnum, '###### %s\n' % currentChunkName
                     yield lnum, '\n'
 
-                    if github_syntax:
-                        yield lnum, '```%s\n' % (github_syntax,)
+                    syntax = self.chunks[currentChunkName]["syntax"] or default_code_syntax
+                    if syntax:
+                        yield lnum, '```%s\n' % (syntax,)
 
-                    for def_lnum, def_line in self.chunks[line[0]]:
-                        if not github_syntax:
+                    for def_lnum, def_line in self.chunks[line[0]]["lines"]:
+                        if not syntax:
                             def_line = '    ' + def_line
                         yield def_lnum, def_line
 
-                    if github_syntax:
+                    if syntax:
                         yield lnum, '```\n'
                     # Following text or separating new-line
                     try:
@@ -321,20 +346,25 @@ class NowebReader(object):
                         line = indent + line
                     yield lnum, line
 
-    def write(self, chunkName, file=None, weave=False, github_syntax=None):
+    def write(self, chunkName, file=None, weave=False, default_code_syntax=None):
         if isinstance(file, basestring) or file is None:
             outfile = StringIO()
         else:
             outfile = file
 
-        for _, line in self.expand(chunkName, weave=weave, github_syntax=github_syntax):
-            outfile.write(line)
+        if chunkName not in self.chunks:
+            raise RuntimeError("No such chunk in document '%s'" % (chunkName,))
+        for _, line in self.expand(chunkName, weave=weave, default_code_syntax=default_code_syntax):
+            outfile.write(line.encode(self.encoding))
 
         if file is None:
             return outfile.getvalue()
         elif isinstance(file, basestring):
             with open(file, 'w') as f:
-                f.write(outfile.getvalue())
+                txt = outfile.getvalue()
+                if isinstance(txt, unicode):
+                    txt = txt.encode(self.encoding)
+                f.write(txt)
 
 def main():
     args = cmd_line_parser.parse_args()
@@ -342,12 +372,12 @@ def main():
     infile = args.infile
     if args.infile == '-':
         infile = sys.stdin
-    doc = NowebReader()
+    doc = NowebReader(encoding=args.encoding)
     doc.read(infile)
     out = args.output
     if out == '-':
         out = sys.stdout
-    doc.write(args.chunk, out, weave=args.weave, github_syntax=args.github_syntax)
+    doc.write(args.chunk, out, weave=args.weave, default_code_syntax=args.default_code_syntax)
 
 if __name__ == "__main__":
     # Delete the pure-Python version of noweb to prevent cache retrieval

@@ -1,3 +1,22 @@
+
+# Noweb.py
+[![Build Status](https://travis-ci.org/Kerrigan29a/noweb.py.svg)](https://travis-ci.org/Kerrigan29a/noweb.py)
+
+# Syntax highlighting
+If you use [Atom](https://atom.io/), you can install the
+[literate package](https://atom.io/packages/language-literate) also created by
+me.
+
+---
+# TODO
+- [ ] Rewrite the documentation to reflect the new changes.
+<!--- TODO: Rewrite the documentation to reflect the new changes -->
+- [ ] Change/Delete [Download](#download)
+<!--- TODO: Change/Delete "Download" -->
+- [ ] Change/Delete [Appendix I](#appendix-i-generating-the-script)
+<!--- TODO: Change/Delete "Appendix I" -->
+---
+
 This executable document first appeared as a blog post on
 http://jonaquino.blogspot.com/2010/04/nowebpy-or-worlds-first-executable-blog.html
 
@@ -7,6 +26,7 @@ http://jonaquino.blogspot.com/2010/04/nowebpy-or-worlds-first-executable-blog.ht
 ```python
 # Copyright (c) 2010  Jonathan Aquino (jonathan.aquino@gmail.com)
 # Copyright (c) 2012  Giel van Schijndel (me@mortis.eu)
+# Copyright (c) 2014  Javier Escalada Gómez (kerrigan29a@gmail.com)
 ```
 
 
@@ -78,9 +98,10 @@ code-generating functionaility in a single class.
 class NowebReader(object):
     <<Defining the syntax>>
 
-    def __init__(self, file=None):
-        self.chunks = {None: []}
+    def __init__(self, file=None, encoding=None):
+        self.chunks = {None: {"syntax":"text", "lines":[]}}
         self.last_fname = None
+        self.encoding = encoding
 
         if file is not None:
             self.read(file)
@@ -98,10 +119,10 @@ class NowebReader(object):
             if isinstance(file, basestring):
                 infile.close()
 
-    def expand(self, chunkName, indent="", weave=False, github_syntax=None):
+    def expand(self, chunkName, indent="", weave=False, default_code_syntax=None):
         <<Recursively expanding the output chunk>>
 
-    def write(self, chunkName, file=None, weave=False, github_syntax=None):
+    def write(self, chunkName, file=None, weave=False, default_code_syntax=None):
         if isinstance(file, basestring) or file is None:
             outfile = StringIO()
         else:
@@ -113,7 +134,10 @@ class NowebReader(object):
             return outfile.getvalue()
         elif isinstance(file, basestring):
             with open(file, 'w') as f:
-                f.write(outfile.getvalue())
+                txt = outfile.getvalue()
+                if isinstance(txt, unicode):
+                    txt = txt.encode(self.encoding)
+                f.write(txt)
 ```
 
 
@@ -140,11 +164,16 @@ require it for their own syntax.
 ###### Defining the syntax
 
 ```python
-chunk_re         = re.compile(r'<<(?P<name>[^>]+)>>')
+chunk_re         = re.compile(r'<<(?:(?P<syntax>[^:]+):)?(?P<name>[^>]+)>>')
 chunk_def        = re.compile(chunk_re.pattern + r'=')
 chunk_at         = re.compile(r'^@@(?=\s|$)')
 chunk_end        = re.compile(r'^@(?:\s(?P<text>.*))?$', re.DOTALL)
 chunk_invocation = re.compile(r'^(?P<indent>\s*)' + chunk_re.pattern + r'\s*$')
+firstline_re     = re.compile(r'^\s*.*\s*literate:\s*(?:'
+    + r'(?:syntax\s*=\s*(?P<syntax>[a-zA-Z0-9_-]*))|'
+    + r'(?:encoding\s*=\s*(?P<encoding>[a-zA-Z0-9_-]*))|'
+    + r'\s*'
+    + r')*.*\s*$')
 ```
 
 
@@ -158,11 +187,24 @@ a map called "chunks", which will contain the chunk names and the lines of each 
 chunkName = None
 
 for lnum, line in enumerate(infile):
+    if self.encoding:
+        line = line.decode(self.encoding)
+    if lnum == 0:
+        match = self.firstline_re.match(line)
+        if match:
+            options = match.groupdict()
+            encoding = options["encoding"]
+            if encoding:
+                self.encoding = encoding
+            # TODO: Do something with options["syntax"]
+            continue
     match = self.chunk_def.match(line)
     if match and not chunkName:
-        self.chunks[chunkName].append((lnum + 1, [match.group('name')]))
+        self.chunks[chunkName]["lines"].append((lnum + 1, [match.group('name')]))
         chunkName = match.group('name')
-        self.chunks[chunkName] = []
+        chunkSyntax = match.group('syntax')
+
+        self.chunks[chunkName] = {"syntax":chunkSyntax, "lines":[]}
     else:
         match = self.chunk_end.match(line)
         if match:
@@ -170,12 +212,12 @@ for lnum, line in enumerate(infile):
             text = match.group('text')
             if text:
                 try:
-                    self.chunks[chunkName][-1][-1].append((lnum + 1, text))
+                    self.chunks[chunkName]["lines"][-1][-1].append((lnum + 1, text))
                 except (IndexError, AttributeError):
                     pass
         else:
             line = self.chunk_at.sub('@', line)
-            self.chunks[chunkName].append((lnum + 1, line))
+            self.chunks[chunkName]["lines"].append((lnum + 1, line))
 ```
 
 
@@ -200,8 +242,9 @@ the command-line arguments given to the script:
 
 ```python
 cmd_line_parser = argparse.ArgumentParser('NoWeb command line options.')
-cmd_line_parser.add_argument('infile',         metavar='FILE',              help='input file to process, "-" for stdin')
-cmd_line_parser.add_argument('-o', '--output', metavar='FILE', default='-', help='file to output to, "-" for stdout')
+cmd_line_parser.add_argument('infile',         metavar='FILE',              help='input file to process, "-" for stdin (default: %(default)s)')
+cmd_line_parser.add_argument('-o', '--output', metavar='FILE', default='-', help='file to output to, "-" for stdout (default: %(default)s)')
+cmd_line_parser.add_argument('-e', '--encoding', metavar='ENCODING', default='utf-8', help='Input and output encoding (default: %(default)s)')
 
 #FIXME: Apparently Python doesn't want groups within groups?
 #_output_mode_dependent = cmd_line_parser.add_mutually_exclusive_group(required=True)
@@ -212,7 +255,7 @@ _tangle_options.add_argument('-R', '--chunk', metavar='CHUNK',    help='name of 
 
 _weave_options  = _output_mode_dependent.add_argument_group('weave',  'Weave options')
 _weave_options.add_argument('-w', '--weave', action='store_true', help='weave output instead of tangling')
-_weave_options.add_argument('--github-syntax', metavar='LANGUAGE', help='use GitHub-Flavoured MarkDown as output for chunks')
+_weave_options.add_argument('--default-code-syntax', metavar='LANGUAGE', help='use this syntax for code chunks')
 ```
 
 
@@ -245,7 +288,7 @@ in the output chunk requested by the user. Take a deep breath.
 ###### Recursively expanding the output chunk
 
 ```python
-for lnum, line in self.chunks[chunkName]:
+for lnum, line in self.chunks[chunkName]["lines"]:
     if isinstance(line, basestring):
         match = self.chunk_invocation.match(line)
     else:
@@ -281,20 +324,23 @@ language to use for highlighting.
 ###### Weave chunks
 
 ```python
+currentChunkName = " ".join(line[:1])
+
 # Add a heading with the chunk's name.
 yield lnum, '\n'
-yield lnum, '###### %s\n' % tuple(line[:1])
+yield lnum, '###### %s\n' % currentChunkName
 yield lnum, '\n'
 
-if github_syntax:
-    yield lnum, '```%s\n' % (github_syntax,)
+syntax = self.chunks[currentChunkName]["syntax"] or default_code_syntax
+if syntax:
+    yield lnum, '```%s\n' % (syntax,)
 
-for def_lnum, def_line in self.chunks[line[0]]:
-    if not github_syntax:
+for def_lnum, def_line in self.chunks[line[0]]["lines"]:
+    if not syntax:
         def_line = '    ' + def_line
     yield def_lnum, def_line
 
-if github_syntax:
+if syntax:
     yield lnum, '```\n'
 # Following text or separating new-line
 try:
@@ -319,8 +365,10 @@ The last step is easy. We just call the recursive function and output the result
 ###### Outputting the chunks
 
 ```python
-for _, line in self.expand(chunkName, weave=weave, github_syntax=github_syntax):
-    outfile.write(line)
+if chunkName not in self.chunks:
+    raise RuntimeError("No such chunk in document '%s'" % (chunkName,))
+for _, line in self.expand(chunkName, weave=weave, default_code_syntax=default_code_syntax):
+    outfile.write(line.encode(self.encoding))
 ```
 
 And we're done. We now have a tool to extract code from a literate programming document.
@@ -553,7 +601,7 @@ def get_code(self, fullname, info=None):
     for outlnum, (inlnum, line) in enumerate(doc.expand(info['chunk'])):
         outlnum += 1
         line_map[outlnum] = inlnum
-        outsrc.write(line)
+        outsrc.write(line.encode(doc.encoding))
 
     # Parse output string to AST
     node = ast.parse(outsrc.getvalue(), info['path'], 'exec')
@@ -621,6 +669,7 @@ Here's how the pieces we have discussed fit together:
 
 ```python
 #!/usr/bin/env python
+# -*- coding: utf-8 -*-
 
 <<License>>
 
@@ -650,12 +699,12 @@ except ImportError:
 
 def main():
     <<Parsing the command-line arguments>>
-    doc = NowebReader()
+    doc = NowebReader(encoding=args.encoding)
     doc.read(infile)
     out = args.output
     if out == '-':
         out = sys.stdout
-    doc.write(args.chunk, out, weave=args.weave, github_syntax=args.github_syntax)
+    doc.write(args.chunk, out, weave=args.weave, default_code_syntax=args.default_code_syntax)
 
 if __name__ == "__main__":
     # Delete the pure-Python version of noweb to prevent cache retrieval

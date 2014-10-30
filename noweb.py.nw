@@ -1,9 +1,30 @@
+<!--- literate: syntax=markdown encoding=utf-8 -->
+
+# Noweb.py
+[![Build Status](https://travis-ci.org/Kerrigan29a/noweb.py.svg)](https://travis-ci.org/Kerrigan29a/noweb.py)
+
+# Syntax highlighting
+If you use [Atom](https://atom.io/), you can install the
+[literate package](https://atom.io/packages/language-literate) also created by
+me.
+
+---
+# TODO
+<!--- TODO: Rewrite the documentation to reflect the new changes -->
+- [ ] Rewrite the documentation to reflect the new changes.
+<!--- TODO: Change/Delete "Download" -->
+- [ ] Change/Delete [Download](#download)
+<!--- TODO: Change/Delete "Appendix I" -->
+- [ ] Change/Delete [Appendix I](#appendix-i-generating-the-script)
+---
+
 This executable document first appeared as a blog post on
 http://jonaquino.blogspot.com/2010/04/nowebpy-or-worlds-first-executable-blog.html
 
-<<License>>=
+<<python:License>>=
 # Copyright (c) 2010  Jonathan Aquino (jonathan.aquino@gmail.com)
 # Copyright (c) 2012  Giel van Schijndel (me@mortis.eu)
+# Copyright (c) 2014  Javier Escalada Gómez (kerrigan29a@gmail.com)
 @
 
 I have recently been interested in the old idea of
@@ -67,13 +88,14 @@ We redirect the output into a hello.php file.
 In order to allow processing of multiple literate documents from the same program we wrap all parsing and
 code-generating functionaility in a single class.
 
-<<Defining the processor>>=
+<<python:Defining the processor>>=
 class NowebReader(object):
     <<Defining the syntax>>
 
-    def __init__(self, file=None):
-        self.chunks = {None: []}
+    def __init__(self, file=None, encoding=None):
+        self.chunks = {None: {"syntax":"text", "lines":[]}}
         self.last_fname = None
+        self.encoding = encoding
 
         if file is not None:
             self.read(file)
@@ -91,10 +113,10 @@ class NowebReader(object):
             if isinstance(file, basestring):
                 infile.close()
 
-    def expand(self, chunkName, indent="", weave=False, github_syntax=None):
+    def expand(self, chunkName, indent="", weave=False, default_code_syntax=None):
         <<Recursively expanding the output chunk>>
 
-    def write(self, chunkName, file=None, weave=False, github_syntax=None):
+    def write(self, chunkName, file=None, weave=False, default_code_syntax=None):
         if isinstance(file, basestring) or file is None:
             outfile = StringIO()
         else:
@@ -106,7 +128,10 @@ class NowebReader(object):
             return outfile.getvalue()
         elif isinstance(file, basestring):
             with open(file, 'w') as f:
-                f.write(outfile.getvalue())
+                txt = outfile.getvalue()
+                if isinstance(txt, unicode):
+                    txt = txt.encode(self.encoding)
+                f.write(txt)
 @
 
 
@@ -128,26 +153,44 @@ replaced with a single @ and does *not* terminate the chunk. This is intended as
 escaping technique allowing the use of the @ sign on the first column for languages that
 require it for their own syntax.
 
-<<Defining the syntax>>=
-chunk_re         = re.compile(r'<<(?P<name>[^>]+)>>')
+<<python:Defining the syntax>>=
+chunk_re         = re.compile(r'<<(?:(?P<syntax>[^:]+):)?(?P<name>[^>]+)>>')
 chunk_def        = re.compile(chunk_re.pattern + r'=')
 chunk_at         = re.compile(r'^@@(?=\s|$)')
 chunk_end        = re.compile(r'^@(?:\s(?P<text>.*))?$', re.DOTALL)
 chunk_invocation = re.compile(r'^(?P<indent>\s*)' + chunk_re.pattern + r'\s*$')
+firstline_re     = re.compile(r'^\s*.*\s*literate:\s*(?:'
+    + r'(?:syntax\s*=\s*(?P<syntax>[a-zA-Z0-9_-]*))|'
+    + r'(?:encoding\s*=\s*(?P<encoding>[a-zA-Z0-9_-]*))|'
+    + r'\s*'
+    + r')*.*\s*$')
 @
 
 Let's start by reading in the file given on the command line. We'll build up
 a map called "chunks", which will contain the chunk names and the lines of each chunk.
 
-<<Reading in the file>>=
+<<python:Reading in the file>>=
 chunkName = None
 
 for lnum, line in enumerate(infile):
+    if self.encoding:
+        line = line.decode(self.encoding)
+    if lnum == 0:
+        match = self.firstline_re.match(line)
+        if match:
+            options = match.groupdict()
+            encoding = options["encoding"]
+            if encoding:
+                self.encoding = encoding
+            # TODO: Do something with options["syntax"]
+            continue
     match = self.chunk_def.match(line)
     if match and not chunkName:
-        self.chunks[chunkName].append((lnum + 1, [match.group('name')]))
+        self.chunks[chunkName]["lines"].append((lnum + 1, [match.group('name')]))
         chunkName = match.group('name')
-        self.chunks[chunkName] = []
+        chunkSyntax = match.group('syntax')
+
+        self.chunks[chunkName] = {"syntax":chunkSyntax, "lines":[]}
     else:
         match = self.chunk_end.match(line)
         if match:
@@ -155,12 +198,12 @@ for lnum, line in enumerate(infile):
             text = match.group('text')
             if text:
                 try:
-                    self.chunks[chunkName][-1][-1].append((lnum + 1, text))
+                    self.chunks[chunkName]["lines"][-1][-1].append((lnum + 1, text))
                 except (IndexError, AttributeError):
                     pass
         else:
             line = self.chunk_at.sub('@', line)
-            self.chunks[chunkName].append((lnum + 1, line))
+            self.chunks[chunkName]["lines"].append((lnum + 1, line))
 @
 
 
@@ -179,10 +222,11 @@ the command-line arguments given to the script:
 
     noweb.py -Rhello.php hello.noweb
 
-<<Defining the command-line parser>>=
+<<python:Defining the command-line parser>>=
 cmd_line_parser = argparse.ArgumentParser('NoWeb command line options.')
-cmd_line_parser.add_argument('infile',         metavar='FILE',              help='input file to process, "-" for stdin')
-cmd_line_parser.add_argument('-o', '--output', metavar='FILE', default='-', help='file to output to, "-" for stdout')
+cmd_line_parser.add_argument('infile',         metavar='FILE',              help='input file to process, "-" for stdin (default: %(default)s)')
+cmd_line_parser.add_argument('-o', '--output', metavar='FILE', default='-', help='file to output to, "-" for stdout (default: %(default)s)')
+cmd_line_parser.add_argument('-e', '--encoding', metavar='ENCODING', default='utf-8', help='Input and output encoding (default: %(default)s)')
 
 #FIXME: Apparently Python doesn't want groups within groups?
 #_output_mode_dependent = cmd_line_parser.add_mutually_exclusive_group(required=True)
@@ -193,10 +237,10 @@ _tangle_options.add_argument('-R', '--chunk', metavar='CHUNK',    help='name of 
 
 _weave_options  = _output_mode_dependent.add_argument_group('weave',  'Weave options')
 _weave_options.add_argument('-w', '--weave', action='store_true', help='weave output instead of tangling')
-_weave_options.add_argument('--github-syntax', metavar='LANGUAGE', help='use GitHub-Flavoured MarkDown as output for chunks')
+_weave_options.add_argument('--default-code-syntax', metavar='LANGUAGE', help='use this syntax for code chunks')
 @
 
-<<Parsing the command-line arguments>>=
+<<python:Parsing the command-line arguments>>=
 args = cmd_line_parser.parse_args()
 
 infile = args.infile
@@ -217,8 +261,8 @@ if args.infile == '-':
 So far, so good. Now we need a recursive function to expand any chunks found
 in the output chunk requested by the user. Take a deep breath.
 
-<<Recursively expanding the output chunk>>=
-for lnum, line in self.chunks[chunkName]:
+<<python:Recursively expanding the output chunk>>=
+for lnum, line in self.chunks[chunkName]["lines"]:
     if isinstance(line, basestring):
         match = self.chunk_invocation.match(line)
     else:
@@ -249,21 +293,24 @@ indenting the block with 4 spaces. Alternatively when GitHub-flavoured Markdown 
 to get language-specific syntax-highlighting we wrap the block in markers and mention the
 language to use for highlighting.
 
-<<Weave chunks>>=
+<<python:Weave chunks>>=
+currentChunkName = " ".join(line[:1])
+
 # Add a heading with the chunk's name.
 yield lnum, '\n'
-yield lnum, '###### %s\n' % tuple(line[:1])
+yield lnum, '###### %s\n' % currentChunkName
 yield lnum, '\n'
 
-if github_syntax:
-    yield lnum, '```%s\n' % (github_syntax,)
+syntax = self.chunks[currentChunkName]["syntax"] or default_code_syntax
+if syntax:
+    yield lnum, '```%s\n' % (syntax,)
 
-for def_lnum, def_line in self.chunks[line[0]]:
-    if not github_syntax:
+for def_lnum, def_line in self.chunks[line[0]]["lines"]:
+    if not syntax:
         def_line = '    ' + def_line
     yield def_lnum, def_line
 
-if github_syntax:
+if syntax:
     yield lnum, '```\n'
 # Following text or separating new-line
 try:
@@ -283,11 +330,11 @@ except IndexError:
 
 The last step is easy. We just call the recursive function and output the result.
 
-<<Outputting the chunks>>=
+<<python:Outputting the chunks>>=
 if chunkName not in self.chunks:
     raise RuntimeError("No such chunk in document '%s'" % (chunkName,))
-for _, line in self.expand(chunkName, weave=weave, github_syntax=github_syntax):
-    outfile.write(line)
+for _, line in self.expand(chunkName, weave=weave, default_code_syntax=default_code_syntax):
+    outfile.write(line.encode(self.encoding))
 @
 And we're done. We now have a tool to extract code from a literate programming document.
 Try it on this blog post!
@@ -297,7 +344,7 @@ Try it on this blog post!
 In order to be able to import Noweb sources directly in Python a custom ImportHook is provided. This hook conforms to
 PEP-302: the Importer Protocol.
 
-<<ImportHook (PEP-302)>>=
+<<python:ImportHook (PEP-302)>>=
 class ImportHook(object):
     <<Hook registration methods>>
 
@@ -351,7 +398,7 @@ class ImportHook(object):
 Part of the Importer Protocol entails finding out whether a given name can be imported and if so giving Python a
 *loader* to import it with. We implement the *finder* and *loader* entities using the same class and object.
 
-<<Finding modules and their loaders>>=
+<<python:Finding modules and their loaders>>=
     def find_module(self, fullname, path=None):
         """Try to discover if we can find the given module."""
         try:
@@ -365,7 +412,7 @@ Part of the Importer Protocol entails finding out whether a given name can be im
 Loading of the object is done by deferring most work to other functions. All we do directly is constructing a module if
 loading of it from the given chunk was succesful.
 
-<<Loading modules>>=
+<<python:Loading modules>>=
 def load_module(self, fullname):
     """Load the specified module.
 
@@ -405,7 +452,7 @@ The `meta_path` hook causes files with a `.py.nw` extension to be imported trans
 with `$file.py` as name where $file is the basename of the `.py.nw` file. Alternatively when sys.path contains a
 filename ending in `.nw` chunks can be imported directly by specifying their name.
 
-<<Hook registration methods>>=
+<<python:Hook registration methods>>=
 @classmethod
 def install(cls):
     """Install this class into the import machinery."""
@@ -474,7 +521,7 @@ We implement all of these. Getting data files is implemented as getting named ch
 compiling of the code. Lastly getting the filename (or `__file__`'s value) is implemented as getting the containing
 chuck's name.
 
-<<Importer Protocol Extensions>>=
+<<python:Importer Protocol Extensions>>=
 def get_data(self, path):
     if self.doc is None or not path in self.doc.chunks:
         raise IOError(path)
@@ -500,7 +547,7 @@ def get_code(self, fullname, info=None):
     for outlnum, (inlnum, line) in enumerate(doc.expand(info['chunk'])):
         outlnum += 1
         line_map[outlnum] = inlnum
-        outsrc.write(line)
+        outsrc.write(line.encode(doc.encoding))
 
     # Parse output string to AST
     node = ast.parse(outsrc.getvalue(), info['path'], 'exec')
@@ -520,7 +567,7 @@ def get_filename(self, fullname, info=None):
     return info['path']
 @
 
-<<AST Line-number re-writer>>=
+<<python:AST Line-number re-writer>>=
 class RewriteLine(ast.NodeTransformer):
     def __init__(self, line_map):
         self.line_map = line_map
@@ -558,8 +605,9 @@ Then you can generate noweb.py from noweb.py.nw as follows:
 
 Here's how the pieces we have discussed fit together:
 
-<<noweb.py>>=
+<<python:noweb.py>>=
 #!/usr/bin/env python
+# -*- coding: utf-8 -*-
 
 <<License>>
 
@@ -589,12 +637,12 @@ except ImportError:
 
 def main():
     <<Parsing the command-line arguments>>
-    doc = NowebReader()
+    doc = NowebReader(encoding=args.encoding)
     doc.read(infile)
     out = args.output
     if out == '-':
         out = sys.stdout
-    doc.write(args.chunk, out, weave=args.weave, github_syntax=args.github_syntax)
+    doc.write(args.chunk, out, weave=args.weave, default_code_syntax=args.default_code_syntax)
 
 if __name__ == "__main__":
     # Delete the pure-Python version of noweb to prevent cache retrieval
