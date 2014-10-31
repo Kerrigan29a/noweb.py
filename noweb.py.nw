@@ -125,9 +125,18 @@ class Reader(object):
             if isinstance(file, basestring):
                 input.close()
 
-    <<Recursively expanding the output chunk>>
+    def _indent_line(self, line, indent=""):
+        if line.value and line.value not in ('\n', '\r\n'):
+            result_line = indent + line.value
+        else:
+            result_line = line.value
+        return line.position, result_line
 
-    def write(self, chunkName, file=None, default_code_syntax=None):
+    <<Tangle chunks>>
+
+    <<Weave chunks>>
+
+    def write(self, lines, file=None):
         if isinstance(file, basestring) or file is None:
             outfile = StringIO()
         else:
@@ -278,10 +287,12 @@ if args.input == '-':
 So far, so good. Now we need a recursive function to expand any chunks found
 in the output chunk requested by the user. Take a deep breath.
 
-<<python:Recursively expanding the output chunk>>=
-def expand(self, chunkName, indent="", default_code_syntax=None):
-    for line in self.chunks[chunkName].lines:
+<<python:Tangle chunks>>=
+def tangle(self, chunkName, indent=""):
+    if chunkName not in self.chunks:
+        raise ValueError("No such chunk in document '%s'" % (chunkName,))
 
+    for line in self.chunks[chunkName].lines:
         if line.type == Line.REFERENCE:
             assert(chunkName != None)
             if line.value not in self.chunks:
@@ -291,21 +302,10 @@ def expand(self, chunkName, indent="", default_code_syntax=None):
                 err_pos += '%u' % (line.position,)
                 raise RuntimeError(
                     "%s: reference to non-existent chunk '%s'" % (err_pos, line.value))
-            for lnum, line in self.expand(line.value, indent + line.indentation,
-                    default_code_syntax):
+            for lnum, line in self.tangle(line.value, indent + line.indentation):
                 yield lnum, line
-
-        elif line.type == Line.DECLARATION:
-            assert(chunkName == None)
-            <<Weave chunks>>
-
         else:
-            # Only add indentation to non-empty lines
-            if line.value and line.value not in ('\n', '\r\n'):
-                result_line = indent + line.value
-            else:
-                result_line = line.value
-            yield line.position, result_line
+            yield self._indent_line(line, indent)
 @
 
 When weaving chunks need to be written using Markdown code-block syntax. This
@@ -314,26 +314,33 @@ GitHub-flavoured Markdown is chosen to get language-specific syntax-highlighting
 we wrap the block in markers and mention the language to use for highlighting.
 
 <<python:Weave chunks>>=
+def weave(self, default_code_syntax=None, indent=""):
+    for line in self.chunks[None].lines:
+        if line.type == Line.DECLARATION:
+            # Add a heading with the chunk's name.
+            yield line.position, '\n'
+            yield line.position, '###### %s\n' % line.value
+            yield line.position, '\n'
 
-# Add a heading with the chunk's name.
-yield line.position, '\n'
-yield line.position, '###### %s\n' % line.value
-yield line.position, '\n'
+            syntax = self.chunks[line.value].syntax or default_code_syntax
+            if syntax:
+                yield line.position, '```%s\n' % (syntax,)
 
-syntax = self.chunks[line.value].syntax or default_code_syntax
-if syntax:
-    yield line.position, '```%s\n' % (syntax,)
+            for line in self.chunks[line.value].lines:
+                if line.type == Line.REFERENCE:
+                    result_line = "".join([line.indentation, "<<", line.value, ">>", "\n"])
+                else:
+                    result_line = line.value
+                if not syntax:
+                    result_line = '    ' + result_line
+                yield line.position, result_line
 
-for line in self.chunks[line.value].lines:
-    result_line = line.value
-    if not syntax:
-        result_line = '    ' + result_line
-    yield line.position, result_line
+            if syntax:
+                yield line.position, '```\n'
 
-if syntax:
-    yield line.position, '```\n'
-
-yield line.position, '\n'
+            yield line.position, '\n'
+        else:
+            yield self._indent_line(line, indent)
 @
 
 
@@ -344,9 +351,7 @@ The last step is easy. We just call the recursive function and output the
 result.
 
 <<python:Outputting the chunks>>=
-if chunkName not in self.chunks:
-    raise RuntimeError("No such chunk in document '%s'" % (chunkName,))
-for _, line in self.expand(chunkName, default_code_syntax=default_code_syntax):
+for _, line in lines:
     outfile.write(line.encode(self.encoding))
 @
 
@@ -416,14 +421,14 @@ imported and if so giving Python a *loader* to import it with. We implement the
 *finder* and *loader* entities using the same class and object.
 
 <<python:Finding modules and their loaders>>=
-    def find_module(self, fullname, path=None):
-        """Try to discover if we can find the given module."""
-        try:
-            self._get_module_info(fullname)
-        except ImportError:
-            return None
-        else:
-            return self
+def find_module(self, fullname, path=None):
+    """Try to discover if we can find the given module."""
+    try:
+        self._get_module_info(fullname)
+    except ImportError:
+        return None
+    else:
+        return self
 @
 
 Loading of the object is done by deferring most work to other functions. All we
@@ -567,7 +572,7 @@ def get_code(self, fullname, info=None):
     # Convert to string, while building a line-number conversion table
     outsrc = StringIO()
     line_map = {}
-    for outlnum, (inlnum, line) in enumerate(doc.expand(info['chunk'])):
+    for outlnum, (inlnum, line) in enumerate(doc.tangle(info['chunk'])):
         outlnum += 1
         line_map[outlnum] = inlnum
         outsrc.write(line.encode(doc.encoding))
@@ -635,6 +640,8 @@ format.  It was generated from noweb.py.nw, itself a literate programming
 document.
 """
 
+from __future__ import unicode_literals
+
 import argparse
 import ast
 import copy
@@ -662,8 +669,11 @@ def main():
         out = sys.stdout
 
     # If args.chunk is None -> Weaver mode
-    doc.write(args.chunk, out,
-        default_code_syntax=args.default_code_syntax if not args.chunk else None)
+    if args.chunk:
+        lines = doc.tangle(args.chunk)
+    else:
+        lines = doc.weave(default_code_syntax=args.default_code_syntax)
+    doc.write(lines, out)
 
 if __name__ == "__main__":
     # Delete the pure-Python version of noweb to prevent cache retrieval

@@ -11,6 +11,8 @@ format.  It was generated from noweb.py.nw, itself a literate programming
 document.
 """
 
+from __future__ import unicode_literals
+
 import argparse
 import ast
 import copy
@@ -138,14 +140,14 @@ class ImportHook(object):
 
         return None
 
-        def find_module(self, fullname, path=None):
-            """Try to discover if we can find the given module."""
-            try:
-                self._get_module_info(fullname)
-            except ImportError:
-                return None
-            else:
-                return self
+    def find_module(self, fullname, path=None):
+        """Try to discover if we can find the given module."""
+        try:
+            self._get_module_info(fullname)
+        except ImportError:
+            return None
+        else:
+            return self
     def load_module(self, fullname):
         """Load the specified module.
 
@@ -197,7 +199,7 @@ class ImportHook(object):
         # Convert to string, while building a line-number conversion table
         outsrc = StringIO()
         line_map = {}
-        for outlnum, (inlnum, line) in enumerate(doc.expand(info['chunk'])):
+        for outlnum, (inlnum, line) in enumerate(doc.tangle(info['chunk'])):
             outlnum += 1
             line_map[outlnum] = inlnum
             outsrc.write(line.encode(doc.encoding))
@@ -309,9 +311,18 @@ class Reader(object):
             if isinstance(file, basestring):
                 input.close()
 
-    def expand(self, chunkName, indent="", default_code_syntax=None):
-        for line in self.chunks[chunkName].lines:
+    def _indent_line(self, line, indent=""):
+        if line.value and line.value not in ('\n', '\r\n'):
+            result_line = indent + line.value
+        else:
+            result_line = line.value
+        return line.position, result_line
 
+    def tangle(self, chunkName, indent=""):
+        if chunkName not in self.chunks:
+            raise ValueError("No such chunk in document '%s'" % (chunkName,))
+
+        for line in self.chunks[chunkName].lines:
             if line.type == Line.REFERENCE:
                 assert(chunkName != None)
                 if line.value not in self.chunks:
@@ -321,13 +332,14 @@ class Reader(object):
                     err_pos += '%u' % (line.position,)
                     raise RuntimeError(
                         "%s: reference to non-existent chunk '%s'" % (err_pos, line.value))
-                for lnum, line in self.expand(line.value, indent + line.indentation,
-                        default_code_syntax):
+                for lnum, line in self.tangle(line.value, indent + line.indentation):
                     yield lnum, line
+            else:
+                yield self._indent_line(line, indent)
 
-            elif line.type == Line.DECLARATION:
-                assert(chunkName == None)
-
+    def weave(self, default_code_syntax=None, indent=""):
+        for line in self.chunks[None].lines:
+            if line.type == Line.DECLARATION:
                 # Add a heading with the chunk's name.
                 yield line.position, '\n'
                 yield line.position, '###### %s\n' % line.value
@@ -338,7 +350,10 @@ class Reader(object):
                     yield line.position, '```%s\n' % (syntax,)
 
                 for line in self.chunks[line.value].lines:
-                    result_line = line.value
+                    if line.type == Line.REFERENCE:
+                        result_line = "".join([line.indentation, "<<", line.value, ">>", "\n"])
+                    else:
+                        result_line = line.value
                     if not syntax:
                         result_line = '    ' + result_line
                     yield line.position, result_line
@@ -347,24 +362,16 @@ class Reader(object):
                     yield line.position, '```\n'
 
                 yield line.position, '\n'
-
             else:
-                # Only add indentation to non-empty lines
-                if line.value and line.value not in ('\n', '\r\n'):
-                    result_line = indent + line.value
-                else:
-                    result_line = line.value
-                yield line.position, result_line
+                yield self._indent_line(line, indent)
 
-    def write(self, chunkName, file=None, default_code_syntax=None):
+    def write(self, lines, file=None):
         if isinstance(file, basestring) or file is None:
             outfile = StringIO()
         else:
             outfile = file
 
-        if chunkName not in self.chunks:
-            raise RuntimeError("No such chunk in document '%s'" % (chunkName,))
-        for _, line in self.expand(chunkName, default_code_syntax=default_code_syntax):
+        for _, line in lines:
             outfile.write(line.encode(self.encoding))
 
         if file is None:
@@ -411,8 +418,11 @@ def main():
         out = sys.stdout
 
     # If args.chunk is None -> Weaver mode
-    doc.write(args.chunk, out,
-        default_code_syntax=args.default_code_syntax if not args.chunk else None)
+    if args.chunk:
+        lines = doc.tangle(args.chunk)
+    else:
+        lines = doc.weave(default_code_syntax=args.default_code_syntax)
+    doc.write(lines, out)
 
 if __name__ == "__main__":
     # Delete the pure-Python version of noweb to prevent cache retrieval
