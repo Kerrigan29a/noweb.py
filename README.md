@@ -93,15 +93,24 @@ class.
 ###### Defining the processor
 
 ```python
-Chunk = collections.namedtuple("Chunk", ["syntax", "lines"])
-Line = collections.namedtuple("Line", ["is_reference", "value", "indentation"])
+Chunk = collections.namedtuple("Chunk",
+    ["syntax", "lines", "position"])
+
+
+
+class Line(collections.namedtuple("Line",
+    ["type", "value", "indentation", "position"])):
+    __slots__ = ()
+    NORMAL = 0
+    REFERENCE = 1
+    DECLARATION = 2
+
 
 class Reader(object):
-    <<Defining the syntax>>
-
+Defining the syntax
     def __init__(self, file=None, encoding=None):
         # Section with key None is the documentation section
-        self.chunks = {None: Chunk(syntax="text", lines=[])}
+        self.chunks = {None: Chunk(syntax="text", lines=[], position=0)}
         self.last_fname = None
         self.encoding = encoding
 
@@ -116,21 +125,18 @@ class Reader(object):
             input = file
             self.last_fname = None
         try:
-            <<Reading in the file>>
-        finally:
+Reading in the file        finally:
             if isinstance(file, basestring):
                 input.close()
 
-    <<Recursively expanding the output chunk>>
-
+Recursively expanding the output chunk
     def write(self, chunkName, file=None, weave=False, default_code_syntax=None):
         if isinstance(file, basestring) or file is None:
             outfile = StringIO()
         else:
             outfile = file
 
-        <<Outputting the chunks>>
-
+Outputting the chunks
         if file is None:
             return outfile.getvalue()
         elif isinstance(file, basestring):
@@ -203,10 +209,11 @@ for lnum, line in enumerate(input):
         chunkName = match.group('name')
         chunkSyntax = match.group('syntax')
         # Append reference to code in documentation
-        self.chunks[None].lines.append((lnum + 1, [chunkName]))
+        self.chunks[None].lines.append(Line(type=Line.DECLARATION,
+            value=chunkName, indentation="", position=lnum + 1))
         # Store code chunk
-        self.chunks[chunkName] = {"syntax":chunkSyntax, "lines":[]}
-        self.chunks[chunkName] = Chunk(syntax=chunkSyntax, lines=[])
+        self.chunks[chunkName] = Chunk(syntax=chunkSyntax, lines=[],
+            position=lnum + 1)
     else:
         match = self.chunk_end.match(line)
         if match:
@@ -221,10 +228,13 @@ for lnum, line in enumerate(input):
             line = self.chunk_at.sub('@', line)
             match = self.chunk_invocation.match(line)
             if match:
-                print u"[DEBUG] line (ANTES) = " + unicode(line)
                 sub_chunk = match.group('name')
                 sub_indent = match.group('indent')
-            self.chunks[chunkName].lines.append((lnum + 1, line))
+                self.chunks[chunkName].lines.append(Line(type=Line.REFERENCE,
+                    value=sub_chunk, indentation=sub_indent, position=lnum + 1))
+            else:
+                self.chunks[chunkName].lines.append(Line(type=Line.NORMAL,
+                    value=line, indentation="", position=lnum + 1))
 ```
 
 
@@ -277,8 +287,7 @@ args = parser.parse_args()
 
 ```python
 
-<<Defining the command-line parser>>
-
+Defining the command-line parser
 input = args.input
 if args.input == '-':
     input = sys.stdin
@@ -299,35 +308,32 @@ in the output chunk requested by the user. Take a deep breath.
 def expand(self, chunkName, indent="", weave=False, default_code_syntax=None):
     print("[DEBUG] chunkName = " + (chunkName if chunkName else "None"))
     print "[DEBUG] weave = " + str(weave)
-    for lnum, line in self.chunks[chunkName].lines:
-        match = None
+    for line in self.chunks[chunkName].lines:
 
-        # Tangle
-        if isinstance(line, basestring):
-            match = self.chunk_invocation.match(line)
-        if match:
-            sub_chunk = match.group('name')
-            sub_indent = indent + match.group('indent')
-            if sub_chunk not in self.chunks:
+        if line.type == Line.REFERENCE:
+            assert(chunkName != None)
+            if line.value not in self.chunks:
                 err_pos = ''
                 if self.last_fname:
                     err_pos = self.last_fname + ':'
-                err_pos += '%u' % (lnum,)
+                err_pos += '%u' % (line.position,)
                 raise RuntimeError(
-                    "%s: reference to non-existent chunk '%s'" % (err_pos, sub_chunk))
-            for lnum, line in self.expand(sub_chunk, sub_indent, weave):
+                    "%s: reference to non-existent chunk '%s'" % (err_pos, line.value))
+            for lnum, line in self.expand(line.value, indent + line.indentation, weave):
                 yield lnum, line
-        # Weave
-        elif isinstance(line, list):
-            assert(weave)
-            print u"[DEBUG] line (weave) = " + unicode(line)
-            <<Weave chunks>>
 
+        elif line.type == Line.DECLARATION:
+            assert(weave)
+            assert(chunkName == None)
+            print u"[DEBUG] line (weave) = " + unicode(line)
+Weave chunks
         else:
             # Only add indentation to non-empty lines
-            if line and line not in ('\n', '\r\n'):
-                line = indent + line
-            yield lnum, line
+            if line.value and line.value not in ('\n', '\r\n'):
+                result_line = indent + line.value
+            else:
+                result_line = line.value
+            yield line.position, result_line
 ```
 
 
@@ -340,30 +346,26 @@ we wrap the block in markers and mention the language to use for highlighting.
 ###### Weave chunks
 
 ```python
-currentChunkName = " ".join(line[:1])
 
 # Add a heading with the chunk's name.
-yield lnum, '\n'
-yield lnum, '###### %s\n' % currentChunkName
-yield lnum, '\n'
+yield line.position, '\n'
+yield line.position, '###### %s\n' % line.value
+yield line.position, '\n'
 
-syntax = self.chunks[currentChunkName].syntax or default_code_syntax
+syntax = self.chunks[line.value].syntax or default_code_syntax
 if syntax:
-    yield lnum, '```%s\n' % (syntax,)
+    yield line.position, '```%s\n' % (syntax,)
 
-for def_lnum, def_line in self.chunks[line[0]].lines:
+for line in self.chunks[line.value].lines:
+    result_line = line.value
     if not syntax:
-        def_line = '    ' + def_line
-    yield def_lnum, def_line
+        result_line = '    ' + result_line
+    yield line.position, result_line
 
 if syntax:
-    yield lnum, '```\n'
-# Following text or separating new-line
-try:
-    yield line[1][0], line[1][1]
-    assert(False)
-except IndexError:
-    yield lnum, '\n'
+    yield line.position, '```\n'
+
+yield line.position, '\n'
 ```
 
 
@@ -399,8 +401,7 @@ ImportHook is provided. This hook conforms to PEP-302: the Importer Protocol.
 
 ```python
 class ImportHook(object):
-    <<Hook registration methods>>
-
+Hook registration methods
     def _get_module_info(self, fullname):
         prefix = fullname.replace('.', '/')
         # Is it a regular module?
@@ -443,10 +444,7 @@ class ImportHook(object):
 
         return None
 
-    <<Finding modules and their loaders>>
-    <<Loading modules>>
-    <<Importer Protocol Extensions>>
-```
+Finding modules and their loadersLoading modulesImporter Protocol Extensions```
 
 
 Part of the Importer Protocol entails finding out whether a given name can be
@@ -688,8 +686,7 @@ Here's how the pieces we have discussed fit together:
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
-<<License>>
-
+License
 """
 This program extracts code from a literate programming document in "noweb"
 format.  It was generated from noweb.py.nw, itself a literate programming
@@ -710,13 +707,9 @@ try:
 except ImportError:
     from StringIO import StringIO
 
-<<AST Line-number re-writer>>
-<<ImportHook (PEP-302)>>
-<<Defining the processor>>
-
+AST Line-number re-writerImportHook (PEP-302)Defining the processor
 def main():
-    <<Parsing the command-line arguments>>
-    doc = Reader(encoding=args.encoding)
+Parsing the command-line arguments    doc = Reader(encoding=args.encoding)
     print "[DEBUG] READING"
     doc.read(input)
     out = args.output

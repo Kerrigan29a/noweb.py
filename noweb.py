@@ -218,8 +218,18 @@ class ImportHook(object):
         if info is None:
             info = self._get_module_info(fullname)
         return info['path']
-Chunk = collections.namedtuple("Chunk", ["syntax", "lines"])
-Line = collections.namedtuple("Line", ["is_reference", "value", "indentation"])
+Chunk = collections.namedtuple("Chunk",
+    ["syntax", "lines", "position"])
+
+
+
+class Line(collections.namedtuple("Line",
+    ["type", "value", "indentation", "position"])):
+    __slots__ = ()
+    NORMAL = 0
+    REFERENCE = 1
+    DECLARATION = 2
+
 
 class Reader(object):
     chunk_re         = re.compile(r'<<(?:(?P<syntax>[^:]+):)?(?P<name>[^>]+)>>')
@@ -235,7 +245,7 @@ class Reader(object):
 
     def __init__(self, file=None, encoding=None):
         # Section with key None is the documentation section
-        self.chunks = {None: Chunk(syntax="text", lines=[])}
+        self.chunks = {None: Chunk(syntax="text", lines=[], position=0)}
         self.last_fname = None
         self.encoding = encoding
 
@@ -269,10 +279,11 @@ class Reader(object):
                     chunkName = match.group('name')
                     chunkSyntax = match.group('syntax')
                     # Append reference to code in documentation
-                    self.chunks[None].lines.append((lnum + 1, [chunkName]))
+                    self.chunks[None].lines.append(Line(type=Line.DECLARATION,
+                        value=chunkName, indentation="", position=lnum + 1))
                     # Store code chunk
-                    self.chunks[chunkName] = {"syntax":chunkSyntax, "lines":[]}
-                    self.chunks[chunkName] = Chunk(syntax=chunkSyntax, lines=[])
+                    self.chunks[chunkName] = Chunk(syntax=chunkSyntax, lines=[],
+                        position=lnum + 1)
                 else:
                     match = self.chunk_end.match(line)
                     if match:
@@ -287,10 +298,13 @@ class Reader(object):
                         line = self.chunk_at.sub('@', line)
                         match = self.chunk_invocation.match(line)
                         if match:
-                            print u"[DEBUG] line (ANTES) = " + unicode(line)
                             sub_chunk = match.group('name')
                             sub_indent = match.group('indent')
-                        self.chunks[chunkName].lines.append((lnum + 1, line))
+                            self.chunks[chunkName].lines.append(Line(type=Line.REFERENCE,
+                                value=sub_chunk, indentation=sub_indent, position=lnum + 1))
+                        else:
+                            self.chunks[chunkName].lines.append(Line(type=Line.NORMAL,
+                                value=line, indentation="", position=lnum + 1))
         finally:
             if isinstance(file, basestring):
                 input.close()
@@ -298,58 +312,52 @@ class Reader(object):
     def expand(self, chunkName, indent="", weave=False, default_code_syntax=None):
         print("[DEBUG] chunkName = " + (chunkName if chunkName else "None"))
         print "[DEBUG] weave = " + str(weave)
-        for lnum, line in self.chunks[chunkName].lines:
-            match = None
+        for line in self.chunks[chunkName].lines:
 
-            # Tangle
-            if isinstance(line, basestring):
-                match = self.chunk_invocation.match(line)
-            if match:
-                sub_chunk = match.group('name')
-                sub_indent = indent + match.group('indent')
-                if sub_chunk not in self.chunks:
+            if line.type == Line.REFERENCE:
+                assert(chunkName != None)
+                if line.value not in self.chunks:
                     err_pos = ''
                     if self.last_fname:
                         err_pos = self.last_fname + ':'
-                    err_pos += '%u' % (lnum,)
+                    err_pos += '%u' % (line.position,)
                     raise RuntimeError(
-                        "%s: reference to non-existent chunk '%s'" % (err_pos, sub_chunk))
-                for lnum, line in self.expand(sub_chunk, sub_indent, weave):
+                        "%s: reference to non-existent chunk '%s'" % (err_pos, line.value))
+                for lnum, line in self.expand(line.value, indent + line.indentation, weave):
                     yield lnum, line
-            # Weave
-            elif isinstance(line, list):
+
+            elif line.type == Line.DECLARATION:
                 assert(weave)
+                assert(chunkName == None)
                 print u"[DEBUG] line (weave) = " + unicode(line)
-                currentChunkName = " ".join(line[:1])
 
                 # Add a heading with the chunk's name.
-                yield lnum, '\n'
-                yield lnum, '###### %s\n' % currentChunkName
-                yield lnum, '\n'
+                yield line.position, '\n'
+                yield line.position, '###### %s\n' % line.value
+                yield line.position, '\n'
 
-                syntax = self.chunks[currentChunkName].syntax or default_code_syntax
+                syntax = self.chunks[line.value].syntax or default_code_syntax
                 if syntax:
-                    yield lnum, '```%s\n' % (syntax,)
+                    yield line.position, '```%s\n' % (syntax,)
 
-                for def_lnum, def_line in self.chunks[line[0]].lines:
+                for line in self.chunks[line.value].lines:
+                    result_line = line.value
                     if not syntax:
-                        def_line = '    ' + def_line
-                    yield def_lnum, def_line
+                        result_line = '    ' + result_line
+                    yield line.position, result_line
 
                 if syntax:
-                    yield lnum, '```\n'
-                # Following text or separating new-line
-                try:
-                    yield line[1][0], line[1][1]
-                    assert(False)
-                except IndexError:
-                    yield lnum, '\n'
+                    yield line.position, '```\n'
+
+                yield line.position, '\n'
 
             else:
                 # Only add indentation to non-empty lines
-                if line and line not in ('\n', '\r\n'):
-                    line = indent + line
-                yield lnum, line
+                if line.value and line.value not in ('\n', '\r\n'):
+                    result_line = indent + line.value
+                else:
+                    result_line = line.value
+                yield line.position, result_line
 
     def write(self, chunkName, file=None, weave=False, default_code_syntax=None):
         if isinstance(file, basestring) or file is None:
