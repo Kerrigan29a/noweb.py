@@ -310,11 +310,10 @@ class Reader(object):
                 input.close()
 
     def expand(self, chunkName, indent="", weave=False, default_code_syntax=None):
-        print("[DEBUG] chunkName = " + (chunkName if chunkName else "None"))
-        print "[DEBUG] weave = " + str(weave)
         for line in self.chunks[chunkName].lines:
 
             if line.type == Line.REFERENCE:
+                assert(not weave)
                 assert(chunkName != None)
                 if line.value not in self.chunks:
                     err_pos = ''
@@ -329,7 +328,6 @@ class Reader(object):
             elif line.type == Line.DECLARATION:
                 assert(weave)
                 assert(chunkName == None)
-                print u"[DEBUG] line (weave) = " + unicode(line)
 
                 # Add a heading with the chunk's name.
                 yield line.position, '\n'
@@ -413,16 +411,10 @@ def main():
     if args.input == '-':
         input = sys.stdin
     doc = Reader(encoding=args.encoding)
-    print "[DEBUG] READING"
     doc.read(input)
     out = args.output
     if out == '-':
         out = sys.stdout
-
-    if args.weave_mode:
-        print "[DEBUG] WRITING (WEAVE)"
-    else:
-        print "[DEBUG] WRITING (TANGLE)"
 
     doc.write(
         None if args.weave_mode else args.chunk,

@@ -306,11 +306,10 @@ in the output chunk requested by the user. Take a deep breath.
 
 ```python
 def expand(self, chunkName, indent="", weave=False, default_code_syntax=None):
-    print("[DEBUG] chunkName = " + (chunkName if chunkName else "None"))
-    print "[DEBUG] weave = " + str(weave)
     for line in self.chunks[chunkName].lines:
 
         if line.type == Line.REFERENCE:
+            assert(not weave)
             assert(chunkName != None)
             if line.value not in self.chunks:
                 err_pos = ''
@@ -325,7 +324,6 @@ def expand(self, chunkName, indent="", weave=False, default_code_syntax=None):
         elif line.type == Line.DECLARATION:
             assert(weave)
             assert(chunkName == None)
-            print u"[DEBUG] line (weave) = " + unicode(line)
 Weave chunks
         else:
             # Only add indentation to non-empty lines
@@ -710,16 +708,10 @@ except ImportError:
 AST Line-number re-writerImportHook (PEP-302)Defining the processor
 def main():
 Parsing the command-line arguments    doc = Reader(encoding=args.encoding)
-    print "[DEBUG] READING"
     doc.read(input)
     out = args.output
     if out == '-':
         out = sys.stdout
-
-    if args.weave_mode:
-        print "[DEBUG] WRITING (WEAVE)"
-    else:
-        print "[DEBUG] WRITING (TANGLE)"
 
     doc.write(
         None if args.weave_mode else args.chunk,
