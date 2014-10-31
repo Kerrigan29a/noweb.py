@@ -11,6 +11,8 @@ format.  It was generated from noweb.py.nw, itself a literate programming
 document.
 """
 
+from __future__ import unicode_literals
+
 import argparse
 import ast
 import copy
@@ -19,6 +21,7 @@ import os
 import re
 import stat
 import sys
+import collections
 try:
     from cStringIO import StringIO
 except ImportError:
@@ -137,14 +140,14 @@ class ImportHook(object):
 
         return None
 
-        def find_module(self, fullname, path=None):
-            """Try to discover if we can find the given module."""
-            try:
-                self._get_module_info(fullname)
-            except ImportError:
-                return None
-            else:
-                return self
+    def find_module(self, fullname, path=None):
+        """Try to discover if we can find the given module."""
+        try:
+            self._get_module_info(fullname)
+        except ImportError:
+            return None
+        else:
+            return self
     def load_module(self, fullname):
         """Load the specified module.
 
@@ -196,7 +199,7 @@ class ImportHook(object):
         # Convert to string, while building a line-number conversion table
         outsrc = StringIO()
         line_map = {}
-        for outlnum, (inlnum, line) in enumerate(doc.expand(info['chunk'])):
+        for outlnum, (inlnum, line) in enumerate(doc.tangle(info['chunk'])):
             outlnum += 1
             line_map[outlnum] = inlnum
             outsrc.write(line.encode(doc.encoding))
@@ -217,6 +220,19 @@ class ImportHook(object):
         if info is None:
             info = self._get_module_info(fullname)
         return info['path']
+Chunk = collections.namedtuple("Chunk",
+    ["syntax", "lines", "position"])
+
+
+
+class Line(collections.namedtuple("Line",
+    ["type", "value", "indentation", "position"])):
+    __slots__ = ()
+    NORMAL = 0
+    REFERENCE = 1
+    DECLARATION = 2
+
+
 class Reader(object):
     chunk_re         = re.compile(r'<<(?:(?P<syntax>[^:]+):)?(?P<name>[^>]+)>>')
     chunk_def        = re.compile(chunk_re.pattern + r'=')
@@ -230,7 +246,8 @@ class Reader(object):
         + r')*.*\s*$')
 
     def __init__(self, file=None, encoding=None):
-        self.chunks = {None: {"syntax":"text", "lines":[]}}
+        # Section with key None is the documentation section
+        self.chunks = {None: Chunk(syntax="text", lines=[], position=0)}
         self.last_fname = None
         self.encoding = encoding
 
@@ -257,15 +274,18 @@ class Reader(object):
                         encoding = options["encoding"]
                         if encoding:
                             self.encoding = encoding
-                        # TODO: Do something with options["syntax"]
+                        # TODO: Do something with options.syntax
                         continue
                 match = self.chunk_def.match(line)
                 if match and not chunkName:
-                    self.chunks[chunkName]["lines"].append((lnum + 1, [match.group('name')]))
                     chunkName = match.group('name')
                     chunkSyntax = match.group('syntax')
-
-                    self.chunks[chunkName] = {"syntax":chunkSyntax, "lines":[]}
+                    # Append reference to code in documentation
+                    self.chunks[None].lines.append(Line(type=Line.DECLARATION,
+                        value=chunkName, indentation="", position=lnum + 1))
+                    # Store code chunk
+                    self.chunks[chunkName] = Chunk(syntax=chunkSyntax, lines=[],
+                        position=lnum + 1)
                 else:
                     match = self.chunk_end.match(line)
                     if match:
@@ -273,74 +293,85 @@ class Reader(object):
                         text = match.group('text')
                         if text:
                             try:
-                                self.chunks[chunkName]["lines"][-1][-1].append((lnum + 1, text))
+                                self.chunks[chunkName].lines[-1][-1].append((lnum + 1, text))
                             except (IndexError, AttributeError):
                                 pass
                     else:
                         line = self.chunk_at.sub('@', line)
-                        self.chunks[chunkName]["lines"].append((lnum + 1, line))
+                        match = self.chunk_invocation.match(line)
+                        if match:
+                            sub_chunk = match.group('name')
+                            sub_indent = match.group('indent')
+                            self.chunks[chunkName].lines.append(Line(type=Line.REFERENCE,
+                                value=sub_chunk, indentation=sub_indent, position=lnum + 1))
+                        else:
+                            self.chunks[chunkName].lines.append(Line(type=Line.NORMAL,
+                                value=line, indentation="", position=lnum + 1))
         finally:
             if isinstance(file, basestring):
                 input.close()
 
-    def expand(self, chunkName, indent="", weave=False, default_code_syntax=None):
-        for lnum, line in self.chunks[chunkName]["lines"]:
-            if isinstance(line, basestring):
-                match = self.chunk_invocation.match(line)
-            else:
-                match = None
-            if match:
-                sub_chunk = match.group('name')
-                sub_indent = indent + match.group('indent')
-                if sub_chunk not in self.chunks:
+    def _indent_line(self, line, indent=""):
+        if line.value and line.value not in ('\n', '\r\n'):
+            result_line = indent + line.value
+        else:
+            result_line = line.value
+        return line.position, result_line
+
+    def tangle(self, chunkName, indent=""):
+        if chunkName not in self.chunks:
+            raise ValueError("No such chunk in document '%s'" % (chunkName,))
+
+        for line in self.chunks[chunkName].lines:
+            if line.type == Line.REFERENCE:
+                assert(chunkName != None)
+                if line.value not in self.chunks:
                     err_pos = ''
                     if self.last_fname:
                         err_pos = self.last_fname + ':'
-                    err_pos += '%u' % (lnum,)
+                    err_pos += '%u' % (line.position,)
                     raise RuntimeError(
-                        "%s: reference to non-existent chunk '%s'" % (err_pos, sub_chunk))
-                for lnum, line in self.expand(sub_chunk, sub_indent, weave):
+                        "%s: reference to non-existent chunk '%s'" % (err_pos, line.value))
+                for lnum, line in self.tangle(line.value, indent + line.indentation):
                     yield lnum, line
             else:
-                if isinstance(line, list) and weave:
-                    currentChunkName = " ".join(line[:1])
+                yield self._indent_line(line, indent)
 
-                    # Add a heading with the chunk's name.
-                    yield lnum, '\n'
-                    yield lnum, '###### %s\n' % currentChunkName
-                    yield lnum, '\n'
+    def weave(self, default_code_syntax=None, indent=""):
+        for line in self.chunks[None].lines:
+            if line.type == Line.DECLARATION:
+                # Add a heading with the chunk's name.
+                yield line.position, '\n'
+                yield line.position, '###### %s\n' % line.value
+                yield line.position, '\n'
 
-                    syntax = self.chunks[currentChunkName]["syntax"] or default_code_syntax
-                    if syntax:
-                        yield lnum, '```%s\n' % (syntax,)
+                syntax = self.chunks[line.value].syntax or default_code_syntax
+                if syntax:
+                    yield line.position, '```%s\n' % (syntax,)
 
-                    for def_lnum, def_line in self.chunks[line[0]]["lines"]:
-                        if not syntax:
-                            def_line = '    ' + def_line
-                        yield def_lnum, def_line
+                for line in self.chunks[line.value].lines:
+                    if line.type == Line.REFERENCE:
+                        result_line = "".join([line.indentation, "<<", line.value, ">>", "\n"])
+                    else:
+                        result_line = line.value
+                    if not syntax:
+                        result_line = '    ' + result_line
+                    yield line.position, result_line
 
-                    if syntax:
-                        yield lnum, '```\n'
-                    # Following text or separating new-line
-                    try:
-                        yield line[1][0], line[1][1]
-                    except IndexError:
-                        yield lnum, '\n'
-                else:
-                    # Only add indentation to non-empty lines
-                    if line and line != '\n':
-                        line = indent + line
-                    yield lnum, line
+                if syntax:
+                    yield line.position, '```\n'
 
-    def write(self, chunkName, file=None, weave=False, default_code_syntax=None):
+                yield line.position, '\n'
+            else:
+                yield self._indent_line(line, indent)
+
+    def write(self, lines, file=None):
         if isinstance(file, basestring) or file is None:
             outfile = StringIO()
         else:
             outfile = file
 
-        if chunkName not in self.chunks:
-            raise RuntimeError("No such chunk in document '%s'" % (chunkName,))
-        for _, line in self.expand(chunkName, weave=weave, default_code_syntax=default_code_syntax):
+        for _, line in lines:
             outfile.write(line.encode(self.encoding))
 
         if file is None:
@@ -369,16 +400,11 @@ def main():
     parser_tangle.add_argument('-R', '--chunk', metavar='CHUNK',
         help='name of chunk to write to stdout')
 
-    # XXX: This is just a dirty fix to change in the future
-    parser_tangle.set_defaults(weave_mode=False)
-
     # Create the parser for the "weave" command
     parser_weave = subparsers.add_parser('weave', help='weave help')
     parser_weave.add_argument('--default-code-syntax', metavar='LANGUAGE',
         help='use this syntax for code chunks')
-
-    # XXX: This is just a dirty fix to change in the future
-    parser_weave.set_defaults(weave_mode=True)
+    parser_weave.set_defaults(chunk=None)
 
     args = parser.parse_args()
 
@@ -390,11 +416,13 @@ def main():
     out = args.output
     if out == '-':
         out = sys.stdout
-    doc.write(
-        None if args.weave_mode else args.chunk,
-        out,
-        weave=args.weave_mode,
-        default_code_syntax=args.default_code_syntax if args.weave_mode else None)
+
+    # If args.chunk is None -> Weaver mode
+    if args.chunk:
+        lines = doc.tangle(args.chunk)
+    else:
+        lines = doc.weave(default_code_syntax=args.default_code_syntax)
+    doc.write(lines, out)
 
 if __name__ == "__main__":
     # Delete the pure-Python version of noweb to prevent cache retrieval
