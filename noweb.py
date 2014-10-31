@@ -230,6 +230,7 @@ class Reader(object):
         + r')*.*\s*$')
 
     def __init__(self, file=None, encoding=None):
+        # Section with key None is the documentation section
         self.chunks = {None: {"syntax":"text", "lines":[]}}
         self.last_fname = None
         self.encoding = encoding
@@ -261,10 +262,11 @@ class Reader(object):
                         continue
                 match = self.chunk_def.match(line)
                 if match and not chunkName:
-                    self.chunks[chunkName]["lines"].append((lnum + 1, [match.group('name')]))
                     chunkName = match.group('name')
                     chunkSyntax = match.group('syntax')
-
+                    # Append reference to code in documentation
+                    self.chunks[None]["lines"].append((lnum + 1, [chunkName]))
+                    # Store code chunk
                     self.chunks[chunkName] = {"syntax":chunkSyntax, "lines":[]}
                 else:
                     match = self.chunk_end.match(line)
@@ -278,17 +280,25 @@ class Reader(object):
                                 pass
                     else:
                         line = self.chunk_at.sub('@', line)
+                        match = self.chunk_invocation.match(line)
+                        if match:
+                            print u"[DEBUG] line (ANTES) = " + unicode(line)
+                            sub_chunk = match.group('name')
+                            sub_indent = match.group('indent')
                         self.chunks[chunkName]["lines"].append((lnum + 1, line))
         finally:
             if isinstance(file, basestring):
                 input.close()
 
     def expand(self, chunkName, indent="", weave=False, default_code_syntax=None):
+        print("[DEBUG] chunkName = " + (chunkName if chunkName else "None"))
+        print "[DEBUG] weave = " + str(weave)
         for lnum, line in self.chunks[chunkName]["lines"]:
+            match = None
+
+            # Tangle
             if isinstance(line, basestring):
                 match = self.chunk_invocation.match(line)
-            else:
-                match = None
             if match:
                 sub_chunk = match.group('name')
                 sub_indent = indent + match.group('indent')
@@ -301,36 +311,40 @@ class Reader(object):
                         "%s: reference to non-existent chunk '%s'" % (err_pos, sub_chunk))
                 for lnum, line in self.expand(sub_chunk, sub_indent, weave):
                     yield lnum, line
+            # Weave
+            elif isinstance(line, list):
+                assert(weave)
+                print u"[DEBUG] line (weave) = " + unicode(line)
+                currentChunkName = " ".join(line[:1])
+
+                # Add a heading with the chunk's name.
+                yield lnum, '\n'
+                yield lnum, '###### %s\n' % currentChunkName
+                yield lnum, '\n'
+
+                syntax = self.chunks[currentChunkName]["syntax"] or default_code_syntax
+                if syntax:
+                    yield lnum, '```%s\n' % (syntax,)
+
+                for def_lnum, def_line in self.chunks[line[0]]["lines"]:
+                    if not syntax:
+                        def_line = '    ' + def_line
+                    yield def_lnum, def_line
+
+                if syntax:
+                    yield lnum, '```\n'
+                # Following text or separating new-line
+                try:
+                    yield line[1][0], line[1][1]
+                    assert(False)
+                except IndexError:
+                    yield lnum, '\n'
+
             else:
-                if isinstance(line, list) and weave:
-                    currentChunkName = " ".join(line[:1])
-
-                    # Add a heading with the chunk's name.
-                    yield lnum, '\n'
-                    yield lnum, '###### %s\n' % currentChunkName
-                    yield lnum, '\n'
-
-                    syntax = self.chunks[currentChunkName]["syntax"] or default_code_syntax
-                    if syntax:
-                        yield lnum, '```%s\n' % (syntax,)
-
-                    for def_lnum, def_line in self.chunks[line[0]]["lines"]:
-                        if not syntax:
-                            def_line = '    ' + def_line
-                        yield def_lnum, def_line
-
-                    if syntax:
-                        yield lnum, '```\n'
-                    # Following text or separating new-line
-                    try:
-                        yield line[1][0], line[1][1]
-                    except IndexError:
-                        yield lnum, '\n'
-                else:
-                    # Only add indentation to non-empty lines
-                    if line and line != '\n':
-                        line = indent + line
-                    yield lnum, line
+                # Only add indentation to non-empty lines
+                if line and line not in ('\n', '\r\n'):
+                    line = indent + line
+                yield lnum, line
 
     def write(self, chunkName, file=None, weave=False, default_code_syntax=None):
         if isinstance(file, basestring) or file is None:
@@ -386,10 +400,17 @@ def main():
     if args.input == '-':
         input = sys.stdin
     doc = Reader(encoding=args.encoding)
+    print "[DEBUG] READING"
     doc.read(input)
     out = args.output
     if out == '-':
         out = sys.stdout
+
+    if args.weave_mode:
+        print "[DEBUG] WRITING (WEAVE)"
+    else:
+        print "[DEBUG] WRITING (TANGLE)"
+
     doc.write(
         None if args.weave_mode else args.chunk,
         out,
