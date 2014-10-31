@@ -19,6 +19,7 @@ import os
 import re
 import stat
 import sys
+import collections
 try:
     from cStringIO import StringIO
 except ImportError:
@@ -217,6 +218,9 @@ class ImportHook(object):
         if info is None:
             info = self._get_module_info(fullname)
         return info['path']
+Chunk = collections.namedtuple("Chunk", ["syntax", "lines"])
+Line = collections.namedtuple("Line", ["is_reference", "value", "indentation"])
+
 class Reader(object):
     chunk_re         = re.compile(r'<<(?:(?P<syntax>[^:]+):)?(?P<name>[^>]+)>>')
     chunk_def        = re.compile(chunk_re.pattern + r'=')
@@ -231,7 +235,7 @@ class Reader(object):
 
     def __init__(self, file=None, encoding=None):
         # Section with key None is the documentation section
-        self.chunks = {None: {"syntax":"text", "lines":[]}}
+        self.chunks = {None: Chunk(syntax="text", lines=[])}
         self.last_fname = None
         self.encoding = encoding
 
@@ -258,16 +262,17 @@ class Reader(object):
                         encoding = options["encoding"]
                         if encoding:
                             self.encoding = encoding
-                        # TODO: Do something with options["syntax"]
+                        # TODO: Do something with options.syntax
                         continue
                 match = self.chunk_def.match(line)
                 if match and not chunkName:
                     chunkName = match.group('name')
                     chunkSyntax = match.group('syntax')
                     # Append reference to code in documentation
-                    self.chunks[None]["lines"].append((lnum + 1, [chunkName]))
+                    self.chunks[None].lines.append((lnum + 1, [chunkName]))
                     # Store code chunk
                     self.chunks[chunkName] = {"syntax":chunkSyntax, "lines":[]}
+                    self.chunks[chunkName] = Chunk(syntax=chunkSyntax, lines=[])
                 else:
                     match = self.chunk_end.match(line)
                     if match:
@@ -275,7 +280,7 @@ class Reader(object):
                         text = match.group('text')
                         if text:
                             try:
-                                self.chunks[chunkName]["lines"][-1][-1].append((lnum + 1, text))
+                                self.chunks[chunkName].lines[-1][-1].append((lnum + 1, text))
                             except (IndexError, AttributeError):
                                 pass
                     else:
@@ -285,7 +290,7 @@ class Reader(object):
                             print u"[DEBUG] line (ANTES) = " + unicode(line)
                             sub_chunk = match.group('name')
                             sub_indent = match.group('indent')
-                        self.chunks[chunkName]["lines"].append((lnum + 1, line))
+                        self.chunks[chunkName].lines.append((lnum + 1, line))
         finally:
             if isinstance(file, basestring):
                 input.close()
@@ -293,7 +298,7 @@ class Reader(object):
     def expand(self, chunkName, indent="", weave=False, default_code_syntax=None):
         print("[DEBUG] chunkName = " + (chunkName if chunkName else "None"))
         print "[DEBUG] weave = " + str(weave)
-        for lnum, line in self.chunks[chunkName]["lines"]:
+        for lnum, line in self.chunks[chunkName].lines:
             match = None
 
             # Tangle
@@ -322,11 +327,11 @@ class Reader(object):
                 yield lnum, '###### %s\n' % currentChunkName
                 yield lnum, '\n'
 
-                syntax = self.chunks[currentChunkName]["syntax"] or default_code_syntax
+                syntax = self.chunks[currentChunkName].syntax or default_code_syntax
                 if syntax:
                     yield lnum, '```%s\n' % (syntax,)
 
-                for def_lnum, def_line in self.chunks[line[0]]["lines"]:
+                for def_lnum, def_line in self.chunks[line[0]].lines:
                     if not syntax:
                         def_line = '    ' + def_line
                     yield def_lnum, def_line
