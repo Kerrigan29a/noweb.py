@@ -309,11 +309,10 @@ class Reader(object):
             if isinstance(file, basestring):
                 input.close()
 
-    def expand(self, chunkName, indent="", weave=False, default_code_syntax=None):
+    def expand(self, chunkName, indent="", default_code_syntax=None):
         for line in self.chunks[chunkName].lines:
 
             if line.type == Line.REFERENCE:
-                assert(not weave)
                 assert(chunkName != None)
                 if line.value not in self.chunks:
                     err_pos = ''
@@ -322,11 +321,11 @@ class Reader(object):
                     err_pos += '%u' % (line.position,)
                     raise RuntimeError(
                         "%s: reference to non-existent chunk '%s'" % (err_pos, line.value))
-                for lnum, line in self.expand(line.value, indent + line.indentation, weave):
+                for lnum, line in self.expand(line.value, indent + line.indentation,
+                        default_code_syntax):
                     yield lnum, line
 
             elif line.type == Line.DECLARATION:
-                assert(weave)
                 assert(chunkName == None)
 
                 # Add a heading with the chunk's name.
@@ -357,7 +356,7 @@ class Reader(object):
                     result_line = line.value
                 yield line.position, result_line
 
-    def write(self, chunkName, file=None, weave=False, default_code_syntax=None):
+    def write(self, chunkName, file=None, default_code_syntax=None):
         if isinstance(file, basestring) or file is None:
             outfile = StringIO()
         else:
@@ -365,7 +364,7 @@ class Reader(object):
 
         if chunkName not in self.chunks:
             raise RuntimeError("No such chunk in document '%s'" % (chunkName,))
-        for _, line in self.expand(chunkName, weave=weave, default_code_syntax=default_code_syntax):
+        for _, line in self.expand(chunkName, default_code_syntax=default_code_syntax):
             outfile.write(line.encode(self.encoding))
 
         if file is None:
@@ -394,16 +393,11 @@ def main():
     parser_tangle.add_argument('-R', '--chunk', metavar='CHUNK',
         help='name of chunk to write to stdout')
 
-    # XXX: This is just a dirty fix to change in the future
-    parser_tangle.set_defaults(weave_mode=False)
-
     # Create the parser for the "weave" command
     parser_weave = subparsers.add_parser('weave', help='weave help')
     parser_weave.add_argument('--default-code-syntax', metavar='LANGUAGE',
         help='use this syntax for code chunks')
-
-    # XXX: This is just a dirty fix to change in the future
-    parser_weave.set_defaults(weave_mode=True)
+    parser_weave.set_defaults(chunk=None)
 
     args = parser.parse_args()
 
@@ -416,11 +410,9 @@ def main():
     if out == '-':
         out = sys.stdout
 
-    doc.write(
-        None if args.weave_mode else args.chunk,
-        out,
-        weave=args.weave_mode,
-        default_code_syntax=args.default_code_syntax if args.weave_mode else None)
+    # If args.chunk is None -> Weaver mode
+    doc.write(args.chunk, out,
+        default_code_syntax=args.default_code_syntax if not args.chunk else None)
 
 if __name__ == "__main__":
     # Delete the pure-Python version of noweb to prevent cache retrieval

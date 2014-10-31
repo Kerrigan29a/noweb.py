@@ -130,7 +130,7 @@ Reading in the file        finally:
                 input.close()
 
 Recursively expanding the output chunk
-    def write(self, chunkName, file=None, weave=False, default_code_syntax=None):
+    def write(self, chunkName, file=None, default_code_syntax=None):
         if isinstance(file, basestring) or file is None:
             outfile = StringIO()
         else:
@@ -267,16 +267,11 @@ parser_tangle = subparsers.add_parser('tangle', help='tangle help')
 parser_tangle.add_argument('-R', '--chunk', metavar='CHUNK',
     help='name of chunk to write to stdout')
 
-# XXX: This is just a dirty fix to change in the future
-parser_tangle.set_defaults(weave_mode=False)
-
 # Create the parser for the "weave" command
 parser_weave = subparsers.add_parser('weave', help='weave help')
 parser_weave.add_argument('--default-code-syntax', metavar='LANGUAGE',
     help='use this syntax for code chunks')
-
-# XXX: This is just a dirty fix to change in the future
-parser_weave.set_defaults(weave_mode=True)
+parser_weave.set_defaults(chunk=None)
 
 args = parser.parse_args()
 ```
@@ -305,11 +300,10 @@ in the output chunk requested by the user. Take a deep breath.
 ###### Recursively expanding the output chunk
 
 ```python
-def expand(self, chunkName, indent="", weave=False, default_code_syntax=None):
+def expand(self, chunkName, indent="", default_code_syntax=None):
     for line in self.chunks[chunkName].lines:
 
         if line.type == Line.REFERENCE:
-            assert(not weave)
             assert(chunkName != None)
             if line.value not in self.chunks:
                 err_pos = ''
@@ -318,11 +312,11 @@ def expand(self, chunkName, indent="", weave=False, default_code_syntax=None):
                 err_pos += '%u' % (line.position,)
                 raise RuntimeError(
                     "%s: reference to non-existent chunk '%s'" % (err_pos, line.value))
-            for lnum, line in self.expand(line.value, indent + line.indentation, weave):
+            for lnum, line in self.expand(line.value, indent + line.indentation,
+                    default_code_syntax):
                 yield lnum, line
 
         elif line.type == Line.DECLARATION:
-            assert(weave)
             assert(chunkName == None)
 Weave chunks
         else:
@@ -380,7 +374,7 @@ result.
 ```python
 if chunkName not in self.chunks:
     raise RuntimeError("No such chunk in document '%s'" % (chunkName,))
-for _, line in self.expand(chunkName, weave=weave, default_code_syntax=default_code_syntax):
+for _, line in self.expand(chunkName, default_code_syntax=default_code_syntax):
     outfile.write(line.encode(self.encoding))
 ```
 
@@ -713,11 +707,9 @@ Parsing the command-line arguments    doc = Reader(encoding=args.encoding)
     if out == '-':
         out = sys.stdout
 
-    doc.write(
-        None if args.weave_mode else args.chunk,
-        out,
-        weave=args.weave_mode,
-        default_code_syntax=args.default_code_syntax if args.weave_mode else None)
+    # If args.chunk is None -> Weaver mode
+    doc.write(args.chunk, out,
+        default_code_syntax=args.default_code_syntax if not args.chunk else None)
 
 if __name__ == "__main__":
     # Delete the pure-Python version of noweb to prevent cache retrieval
