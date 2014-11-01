@@ -1,6 +1,6 @@
 
 # Noweb.py
-[![Build Status](https://travis-ci.org/Kerrigan29a/noweb.py.svg)](https://travis-ci.org/Kerrigan29a/noweb.py)
+[![Build Status](https://travis-ci.org/Kerrigan29a/noweb.py.svg?branch=develop)](https://travis-ci.org/Kerrigan29a/noweb.py)
 
 
 
@@ -22,7 +22,7 @@ This executable document first appeared as a blog post on
 http://jonaquino.blogspot.com/2010/04/nowebpy-or-worlds-first-executable-blog.html
 
 
-###### License <a name="license"></a>
+###### License
 
 ```python
 # Copyright (c) 2010  Jonathan Aquino (jonathan.aquino@gmail.com)
@@ -89,7 +89,7 @@ program we wrap all parsing and code-generating functionaility in a single
 class.
 
 
-###### Defining the processor <a name="defining-the-processor"></a>
+###### Defining the processor
 
 ```python
 Chunk = collections.namedtuple("Chunk",
@@ -185,7 +185,7 @@ allowing the use of the @ sign on the first column for languages that require it
 for their own syntax.
 
 
-###### Defining the syntax <a name="defining-the-syntax"></a>
+###### Defining the syntax
 
 ```python
 chunk_re         = re.compile(r'<<(?:(?P<syntax>[^:]+):)?(?P<name>[^>]+)>>')
@@ -205,7 +205,7 @@ a map called "chunks", which will contain the chunk names and the lines of each
 chunk.
 
 
-###### Reading in the file <a name="reading-in-the-file"></a>
+###### Reading in the file
 
 ```python
 chunkName = None
@@ -268,7 +268,7 @@ parse the command-line arguments given to the script:
     noweb.py -Rhello.php hello.noweb
 
 
-###### Defining the command-line parser <a name="defining-the-command-line-parser"></a>
+###### Defining the command-line parser
 
 ```python
 parser = argparse.ArgumentParser('NoWeb command line options.')
@@ -296,7 +296,7 @@ parser_weave.set_defaults(chunk=None)
 ```
 
 
-###### Parsing the command-line arguments <a name="parsing-the-command-line-arguments"></a>
+###### Parsing the command-line arguments
 
 ```python
 <<Defining the command-line parser>>
@@ -314,7 +314,7 @@ So far, so good. Now we need a recursive function to expand any chunks found
 in the output chunk requested by the user. Take a deep breath.
 
 
-###### Tangle chunks <a name="tangle-chunks"></a>
+###### Tangle chunks
 
 ```python
 def tangle(self, chunkName, indent=""):
@@ -343,7 +343,7 @@ GitHub-flavoured Markdown is chosen to get language-specific syntax-highlighting
 we wrap the block in markers and mention the language to use for highlighting.
 
 
-###### Weave chunks <a name="weave-chunks"></a>
+###### Weave chunks
 
 ```python
 def weave(self, default_code_syntax=None, indent="", **kwargs):
@@ -370,7 +370,7 @@ def weave(self, default_code_syntax=None, indent="", **kwargs):
 ```
 
 
-###### Format chunks <a name="format-chunks"></a>
+###### Format chunks
 
 ```python
 
@@ -432,7 +432,7 @@ The last step is easy. We just call the recursive function and output the
 result.
 
 
-###### Outputting the chunks <a name="outputting-the-chunks"></a>
+###### Outputting the chunks
 
 ```python
 for line in lines:
@@ -450,7 +450,7 @@ In order to be able to import Noweb sources directly in Python a custom
 ImportHook is provided. This hook conforms to PEP-302: the Importer Protocol.
 
 
-###### ImportHook (PEP-302) <a name="importhook-(pep-302)"></a>
+###### ImportHook (PEP-302)
 
 ```python
 class ImportHook(object):
@@ -508,7 +508,7 @@ imported and if so giving Python a *loader* to import it with. We implement the
 *finder* and *loader* entities using the same class and object.
 
 
-###### Finding modules and their loaders <a name="finding-modules-and-their-loaders"></a>
+###### Finding modules and their loaders
 
 ```python
 def find_module(self, fullname, path=None):
@@ -526,7 +526,7 @@ do directly is constructing a module if loading of it from the given chunk was
 succesful.
 
 
-###### Loading modules <a name="loading-modules"></a>
+###### Loading modules
 
 ```python
 def load_module(self, fullname):
@@ -572,7 +572,7 @@ filename ending in `.nw` chunks can be imported directly by specifying their
 name.
 
 
-###### Hook registration methods <a name="hook-registration-methods"></a>
+###### Hook registration methods
 
 ```python
 @classmethod
@@ -646,7 +646,7 @@ filename (or `__file__`'s value) is implemented as getting the containing
 chuck's name.
 
 
-###### Importer Protocol Extensions <a name="importer-protocol-extensions"></a>
+###### Importer Protocol Extensions
 
 ```python
 def get_data(self, path):
@@ -696,7 +696,7 @@ def get_filename(self, fullname, info=None):
 ```
 
 
-###### AST Line-number re-writer <a name="ast-line-number-re-writer"></a>
+###### AST Line-number re-writer
 
 ```python
 class RewriteLine(ast.NodeTransformer):
@@ -732,7 +732,7 @@ Then you can generate noweb.py from noweb.py.nw as follows:
 Here's how the pieces we have discussed fit together:
 
 
-###### noweb.py <a name="noweb.py"></a>
+###### noweb.py
 
 ```python
 #!/usr/bin/env python
