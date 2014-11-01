@@ -22,14 +22,13 @@ This executable document first appeared as a blog post on
 http://jonaquino.blogspot.com/2010/04/nowebpy-or-worlds-first-executable-blog.html
 
 
-###### License
+###### License <a name="license"></a>
 
 ```python
 # Copyright (c) 2010  Jonathan Aquino (jonathan.aquino@gmail.com)
 # Copyright (c) 2012  Giel van Schijndel (me@mortis.eu)
 # Copyright (c) 2014  Javier Escalada Gómez (kerrigan29a@gmail.com)
 ```
-
 
 I have recently been interested in the old idea of
 [literate programming](http://en.wikipedia.org/wiki/Literate_programming).
@@ -90,7 +89,7 @@ program we wrap all parsing and code-generating functionaility in a single
 class.
 
 
-###### Defining the processor
+###### Defining the processor <a name="defining-the-processor"></a>
 
 ```python
 Chunk = collections.namedtuple("Chunk",
@@ -101,9 +100,18 @@ Chunk = collections.namedtuple("Chunk",
 class Line(collections.namedtuple("Line",
     ["type", "value", "indentation", "position"])):
     __slots__ = ()
-    NORMAL = 0
-    REFERENCE = 1
-    DECLARATION = 2
+
+    DOCUMENTATION = 1
+    CHUNK_BEGIN = 2
+    CODE = 3
+    REFERENCE = 4
+    CHUNK_END = 5
+
+    def __str__(self):
+        return "".join([self.indentation, self.value])
+
+    def __str__(self):
+        return u"".join([self.indentation, self.value])
 
 
 class Reader(object):
@@ -131,16 +139,15 @@ class Reader(object):
             if isinstance(file, basestring):
                 input.close()
 
-    def _indent_line(self, line, indent=""):
-        if line.value and line.value not in ('\n', '\r\n'):
-            result_line = indent + line.value
-        else:
-            result_line = line.value
-        return line.position, result_line
+    def _indent_line(self, line, indent):
+        return line if line.value in ('', '\n', '\r\n') \
+            else line._replace(indentation=indent + line.indentation)
 
     <<Tangle chunks>>
 
     <<Weave chunks>>
+
+    <<Format chunks>>
 
     def write(self, lines, file=None):
         if isinstance(file, basestring) or file is None:
@@ -162,7 +169,6 @@ class Reader(object):
 
 
 
-
 # READING IN THE FILE
 
 In a literate program, there are named chunks of code interspersed throughout
@@ -179,7 +185,7 @@ allowing the use of the @ sign on the first column for languages that require it
 for their own syntax.
 
 
-###### Defining the syntax
+###### Defining the syntax <a name="defining-the-syntax"></a>
 
 ```python
 chunk_re         = re.compile(r'<<(?:(?P<syntax>[^:]+):)?(?P<name>[^>]+)>>')
@@ -194,13 +200,12 @@ firstline_re     = re.compile(r'^\s*.*\s*literate:\s*(?:'
     + r')*.*\s*$')
 ```
 
-
 Let's start by reading in the file given on the command line. We'll build up
 a map called "chunks", which will contain the chunk names and the lines of each
 chunk.
 
 
-###### Reading in the file
+###### Reading in the file <a name="reading-in-the-file"></a>
 
 ```python
 chunkName = None
@@ -215,14 +220,16 @@ for lnum, line in enumerate(input):
             encoding = options["encoding"]
             if encoding:
                 self.encoding = encoding
-            # TODO: Do something with options.syntax
+            syntax = options["syntax"]
+            if syntax:
+                self.chunks[None] = self.chunks[None]._replace(syntax=syntax)
             continue
     match = self.chunk_def.match(line)
     if match and not chunkName:
         chunkName = match.group('name')
         chunkSyntax = match.group('syntax')
         # Append reference to code in documentation
-        self.chunks[None].lines.append(Line(type=Line.DECLARATION,
+        self.chunks[None].lines.append(Line(type=Line.CHUNK_BEGIN,
             value=chunkName, indentation="", position=lnum + 1))
         # Store code chunk
         self.chunks[chunkName] = Chunk(syntax=chunkSyntax, lines=[],
@@ -233,10 +240,9 @@ for lnum, line in enumerate(input):
             chunkName = None
             text = match.group('text')
             if text:
-                try:
-                    self.chunks[chunkName].lines[-1][-1].append((lnum + 1, text))
-                except (IndexError, AttributeError):
-                    pass
+                self.chunks[chunkName].lines.append(Line(
+                    type=Line.DOCUMENTATION,
+                    value=text, indentation="", position=lnum + 1))
         else:
             line = self.chunk_at.sub('@', line)
             match = self.chunk_invocation.match(line)
@@ -246,10 +252,10 @@ for lnum, line in enumerate(input):
                 self.chunks[chunkName].lines.append(Line(type=Line.REFERENCE,
                     value=sub_chunk, indentation=sub_indent, position=lnum + 1))
             else:
-                self.chunks[chunkName].lines.append(Line(type=Line.NORMAL,
+                self.chunks[chunkName].lines.append(Line(
+                    type=Line.CODE if chunkName else Line.DOCUMENTATION,
                     value=line, indentation="", position=lnum + 1))
 ```
-
 
 
 
@@ -262,7 +268,7 @@ parse the command-line arguments given to the script:
     noweb.py -Rhello.php hello.noweb
 
 
-###### Defining the command-line parser
+###### Defining the command-line parser <a name="defining-the-command-line-parser"></a>
 
 ```python
 parser = argparse.ArgumentParser('NoWeb command line options.')
@@ -284,24 +290,21 @@ parser_tangle.add_argument('-R', '--chunk', metavar='CHUNK',
 parser_weave = subparsers.add_parser('weave', help='weave help')
 parser_weave.add_argument('--default-code-syntax', metavar='LANGUAGE',
     help='use this syntax for code chunks')
+parser_weave.add_argument('--add-links', action="store_true",
+    help='Add HTML links to each code chunk')
 parser_weave.set_defaults(chunk=None)
-
-args = parser.parse_args()
 ```
 
 
-
-###### Parsing the command-line arguments
+###### Parsing the command-line arguments <a name="parsing-the-command-line-arguments"></a>
 
 ```python
-
 <<Defining the command-line parser>>
-
+args = parser.parse_args()
 input = args.input
 if args.input == '-':
     input = sys.stdin
 ```
-
 
 
 
@@ -311,7 +314,7 @@ So far, so good. Now we need a recursive function to expand any chunks found
 in the output chunk requested by the user. Take a deep breath.
 
 
-###### Tangle chunks
+###### Tangle chunks <a name="tangle-chunks"></a>
 
 ```python
 def tangle(self, chunkName, indent=""):
@@ -328,12 +331,11 @@ def tangle(self, chunkName, indent=""):
                 err_pos += '%u' % (line.position,)
                 raise RuntimeError(
                     "%s: reference to non-existent chunk '%s'" % (err_pos, line.value))
-            for lnum, line in self.tangle(line.value, indent + line.indentation):
-                yield lnum, line
+            for line in self.tangle(line.value, indent + line.indentation):
+                yield line
         else:
             yield self._indent_line(line, indent)
 ```
-
 
 When weaving chunks need to be written using Markdown code-block syntax. This
 either means indenting the block with 4 spaces. Alternatively when
@@ -341,38 +343,86 @@ GitHub-flavoured Markdown is chosen to get language-specific syntax-highlighting
 we wrap the block in markers and mention the language to use for highlighting.
 
 
-###### Weave chunks
+###### Weave chunks <a name="weave-chunks"></a>
 
 ```python
-def weave(self, default_code_syntax=None, indent=""):
+def weave(self, default_code_syntax=None, indent="", **kwargs):
+
+    formatter = self.formatters.get(self.chunks[None].syntax)
+
     for line in self.chunks[None].lines:
-        if line.type == Line.DECLARATION:
-            # Add a heading with the chunk's name.
-            yield line.position, '\n'
-            yield line.position, '###### %s\n' % line.value
-            yield line.position, '\n'
-
+        if line.type == Line.CHUNK_BEGIN:
             syntax = self.chunks[line.value].syntax or default_code_syntax
-            if syntax:
-                yield line.position, '```%s\n' % (syntax,)
+            for formatted_line in formatter(self, line, syntax, **kwargs):
+                yield formatted_line
 
-            for line in self.chunks[line.value].lines:
-                if line.type == Line.REFERENCE:
-                    result_line = "".join([line.indentation, "<<", line.value, ">>", "\n"])
-                else:
-                    result_line = line.value
-                if not syntax:
-                    result_line = '    ' + result_line
-                yield line.position, result_line
+            code_lines = self.chunks[line.value].lines
+            for formatted_line in formatter(self, code_lines, syntax, **kwargs):
+                yield formatted_line
 
-            if syntax:
-                yield line.position, '```\n'
-
-            yield line.position, '\n'
+            line = line._replace(type=Line.CHUNK_END)
+            for formatted_line in formatter(self, line, syntax, **kwargs):
+                yield formatted_line
         else:
-            yield self._indent_line(line, indent)
+            line = self._indent_line(line, indent)
+            for formatted_line in formatter(self, line, None, **kwargs):
+                yield formatted_line
 ```
 
+
+###### Format chunks <a name="format-chunks"></a>
+
+```python
+
+def format_markdown(self, lines, code_syntax, add_links):
+    if isinstance(lines, Line):
+        lines = [lines]
+
+    for line in lines:
+        if line.type == Line.CHUNK_BEGIN:
+            # Add a heading with the chunk's name.
+            yield line._replace(value="\n")
+            yield line._replace(value='###### ')
+            yield line
+            if add_links:
+                name = "-".join(line.value.split()).lower()
+                yield line._replace(value="".join([' <a name="', name, '"></a>']))
+            yield line._replace(value="\n")
+            yield line._replace(value="\n")
+
+            if code_syntax:
+                yield line._replace(value="```%s\n" % (code_syntax,))
+
+        elif line.type == Line.CHUNK_END:
+            yield line._replace(value='```\n' if code_syntax else "\n")
+
+        elif line.type == Line.CODE:
+            if not code_syntax:
+                yield self._indent_line(line, "    ")
+            else:
+                yield line
+
+        elif line.type == Line.REFERENCE:
+            yield line._replace(value="".join(["<<", line.value, ">>", "\n"]))
+
+        elif line.type == Line.DOCUMENTATION:
+            assert(code_syntax == None)
+            yield line
+
+        else:
+            raise TypeError("Unknown type of line")
+
+formatters = {
+    "markdown": format_markdown,
+    "mdown":    format_markdown,
+    "md":       format_markdown,
+
+    "text":     format_markdown,
+    "txt":      format_markdown,
+    None:       format_markdown,
+}
+
+```
 
 
 
@@ -382,13 +432,12 @@ The last step is easy. We just call the recursive function and output the
 result.
 
 
-###### Outputting the chunks
+###### Outputting the chunks <a name="outputting-the-chunks"></a>
 
 ```python
-for _, line in lines:
-    outfile.write(line.encode(self.encoding))
+for line in lines:
+    outfile.write(unicode(line).encode(self.encoding))
 ```
-
 
 And we're done. We now have a tool to extract code from a literate programming
 document. Try it on this blog post!
@@ -401,7 +450,7 @@ In order to be able to import Noweb sources directly in Python a custom
 ImportHook is provided. This hook conforms to PEP-302: the Importer Protocol.
 
 
-###### ImportHook (PEP-302)
+###### ImportHook (PEP-302) <a name="importhook-(pep-302)"></a>
 
 ```python
 class ImportHook(object):
@@ -454,13 +503,12 @@ class ImportHook(object):
     <<Importer Protocol Extensions>>
 ```
 
-
 Part of the Importer Protocol entails finding out whether a given name can be
 imported and if so giving Python a *loader* to import it with. We implement the
 *finder* and *loader* entities using the same class and object.
 
 
-###### Finding modules and their loaders
+###### Finding modules and their loaders <a name="finding-modules-and-their-loaders"></a>
 
 ```python
 def find_module(self, fullname, path=None):
@@ -473,13 +521,12 @@ def find_module(self, fullname, path=None):
         return self
 ```
 
-
 Loading of the object is done by deferring most work to other functions. All we
 do directly is constructing a module if loading of it from the given chunk was
 succesful.
 
 
-###### Loading modules
+###### Loading modules <a name="loading-modules"></a>
 
 ```python
 def load_module(self, fullname):
@@ -513,7 +560,6 @@ def load_module(self, fullname):
     return module
 ```
 
-
 In order to be able to use the ImportHook easily it has `install()` and
 `uninstall()` methods that'll take care of hooking into Python's `meta_path` and
 `path_hooks`. First they check to see whether ImportHook's already present and
@@ -526,7 +572,7 @@ filename ending in `.nw` chunks can be imported directly by specifying their
 name.
 
 
-###### Hook registration methods
+###### Hook registration methods <a name="hook-registration-methods"></a>
 
 ```python
 @classmethod
@@ -589,7 +635,6 @@ def __init__(self, path=None):
         raise ImportError(path)
 ```
 
-
 The Importer Protocol defines three optional extensions. One is to retrieve data
 files, the second is to support module packaging tools and/or tools that analyze
 module dependencies (for example Freeze), while the last is to support execution
@@ -601,7 +646,7 @@ filename (or `__file__`'s value) is implemented as getting the containing
 chuck's name.
 
 
-###### Importer Protocol Extensions
+###### Importer Protocol Extensions <a name="importer-protocol-extensions"></a>
 
 ```python
 def get_data(self, path):
@@ -626,10 +671,11 @@ def get_code(self, fullname, info=None):
     # Convert to string, while building a line-number conversion table
     outsrc = StringIO()
     line_map = {}
-    for outlnum, (inlnum, line) in enumerate(doc.tangle(info['chunk'])):
+    for outlnum, line in enumerate(doc.tangle(info['chunk'])):
+        inlnum = line.position
         outlnum += 1
         line_map[outlnum] = inlnum
-        outsrc.write(line.encode(doc.encoding))
+        outsrc.write(line.value.encode(doc.encoding))
 
     # Parse output string to AST
     node = ast.parse(outsrc.getvalue(), info['path'], 'exec')
@@ -650,8 +696,7 @@ def get_filename(self, fullname, info=None):
 ```
 
 
-
-###### AST Line-number re-writer
+###### AST Line-number re-writer <a name="ast-line-number-re-writer"></a>
 
 ```python
 class RewriteLine(ast.NodeTransformer):
@@ -666,7 +711,6 @@ class RewriteLine(ast.NodeTransformer):
             pass
         return super(RewriteLine, self).visit(node)
 ```
-
 
 
 
@@ -688,7 +732,7 @@ Then you can generate noweb.py from noweb.py.nw as follows:
 Here's how the pieces we have discussed fit together:
 
 
-###### noweb.py
+###### noweb.py <a name="noweb.py"></a>
 
 ```python
 #!/usr/bin/env python
@@ -734,7 +778,8 @@ def main():
     if args.chunk:
         lines = doc.tangle(args.chunk)
     else:
-        lines = doc.weave(default_code_syntax=args.default_code_syntax)
+        lines = doc.weave(default_code_syntax=args.default_code_syntax,
+            add_links=args.add_links)
     doc.write(lines, out)
 
 if __name__ == "__main__":
@@ -750,4 +795,3 @@ if __name__ == "__main__":
     # Exceptions from within noweb should now be linked to the .nw source-file
     noweb.main()
 ```
-

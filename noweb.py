@@ -199,10 +199,11 @@ class ImportHook(object):
         # Convert to string, while building a line-number conversion table
         outsrc = StringIO()
         line_map = {}
-        for outlnum, (inlnum, line) in enumerate(doc.tangle(info['chunk'])):
+        for outlnum, line in enumerate(doc.tangle(info['chunk'])):
+            inlnum = line.position
             outlnum += 1
             line_map[outlnum] = inlnum
-            outsrc.write(line.encode(doc.encoding))
+            outsrc.write(line.value.encode(doc.encoding))
 
         # Parse output string to AST
         node = ast.parse(outsrc.getvalue(), info['path'], 'exec')
@@ -228,9 +229,18 @@ Chunk = collections.namedtuple("Chunk",
 class Line(collections.namedtuple("Line",
     ["type", "value", "indentation", "position"])):
     __slots__ = ()
-    NORMAL = 0
-    REFERENCE = 1
-    DECLARATION = 2
+
+    DOCUMENTATION = 1
+    CHUNK_BEGIN = 2
+    CODE = 3
+    REFERENCE = 4
+    CHUNK_END = 5
+
+    def __str__(self):
+        return "".join([self.indentation, self.value])
+
+    def __str__(self):
+        return u"".join([self.indentation, self.value])
 
 
 class Reader(object):
@@ -274,14 +284,16 @@ class Reader(object):
                         encoding = options["encoding"]
                         if encoding:
                             self.encoding = encoding
-                        # TODO: Do something with options.syntax
+                        syntax = options["syntax"]
+                        if syntax:
+                            self.chunks[None] = self.chunks[None]._replace(syntax=syntax)
                         continue
                 match = self.chunk_def.match(line)
                 if match and not chunkName:
                     chunkName = match.group('name')
                     chunkSyntax = match.group('syntax')
                     # Append reference to code in documentation
-                    self.chunks[None].lines.append(Line(type=Line.DECLARATION,
+                    self.chunks[None].lines.append(Line(type=Line.CHUNK_BEGIN,
                         value=chunkName, indentation="", position=lnum + 1))
                     # Store code chunk
                     self.chunks[chunkName] = Chunk(syntax=chunkSyntax, lines=[],
@@ -292,10 +304,9 @@ class Reader(object):
                         chunkName = None
                         text = match.group('text')
                         if text:
-                            try:
-                                self.chunks[chunkName].lines[-1][-1].append((lnum + 1, text))
-                            except (IndexError, AttributeError):
-                                pass
+                            self.chunks[chunkName].lines.append(Line(
+                                type=Line.DOCUMENTATION,
+                                value=text, indentation="", position=lnum + 1))
                     else:
                         line = self.chunk_at.sub('@', line)
                         match = self.chunk_invocation.match(line)
@@ -305,18 +316,16 @@ class Reader(object):
                             self.chunks[chunkName].lines.append(Line(type=Line.REFERENCE,
                                 value=sub_chunk, indentation=sub_indent, position=lnum + 1))
                         else:
-                            self.chunks[chunkName].lines.append(Line(type=Line.NORMAL,
+                            self.chunks[chunkName].lines.append(Line(
+                                type=Line.CODE if chunkName else Line.DOCUMENTATION,
                                 value=line, indentation="", position=lnum + 1))
         finally:
             if isinstance(file, basestring):
                 input.close()
 
-    def _indent_line(self, line, indent=""):
-        if line.value and line.value not in ('\n', '\r\n'):
-            result_line = indent + line.value
-        else:
-            result_line = line.value
-        return line.position, result_line
+    def _indent_line(self, line, indent):
+        return line if line.value in ('', '\n', '\r\n') \
+            else line._replace(indentation=indent + line.indentation)
 
     def tangle(self, chunkName, indent=""):
         if chunkName not in self.chunks:
@@ -332,38 +341,82 @@ class Reader(object):
                     err_pos += '%u' % (line.position,)
                     raise RuntimeError(
                         "%s: reference to non-existent chunk '%s'" % (err_pos, line.value))
-                for lnum, line in self.tangle(line.value, indent + line.indentation):
-                    yield lnum, line
+                for line in self.tangle(line.value, indent + line.indentation):
+                    yield line
             else:
                 yield self._indent_line(line, indent)
 
-    def weave(self, default_code_syntax=None, indent=""):
+    def weave(self, default_code_syntax=None, indent="", **kwargs):
+
+        formatter = self.formatters.get(self.chunks[None].syntax)
+
         for line in self.chunks[None].lines:
-            if line.type == Line.DECLARATION:
-                # Add a heading with the chunk's name.
-                yield line.position, '\n'
-                yield line.position, '###### %s\n' % line.value
-                yield line.position, '\n'
-
+            if line.type == Line.CHUNK_BEGIN:
                 syntax = self.chunks[line.value].syntax or default_code_syntax
-                if syntax:
-                    yield line.position, '```%s\n' % (syntax,)
+                for formatted_line in formatter(self, line, syntax, **kwargs):
+                    yield formatted_line
 
-                for line in self.chunks[line.value].lines:
-                    if line.type == Line.REFERENCE:
-                        result_line = "".join([line.indentation, "<<", line.value, ">>", "\n"])
-                    else:
-                        result_line = line.value
-                    if not syntax:
-                        result_line = '    ' + result_line
-                    yield line.position, result_line
+                code_lines = self.chunks[line.value].lines
+                for formatted_line in formatter(self, code_lines, syntax, **kwargs):
+                    yield formatted_line
 
-                if syntax:
-                    yield line.position, '```\n'
-
-                yield line.position, '\n'
+                line = line._replace(type=Line.CHUNK_END)
+                for formatted_line in formatter(self, line, syntax, **kwargs):
+                    yield formatted_line
             else:
-                yield self._indent_line(line, indent)
+                line = self._indent_line(line, indent)
+                for formatted_line in formatter(self, line, None, **kwargs):
+                    yield formatted_line
+
+
+    def format_markdown(self, lines, code_syntax, add_links):
+        if isinstance(lines, Line):
+            lines = [lines]
+
+        for line in lines:
+            if line.type == Line.CHUNK_BEGIN:
+                # Add a heading with the chunk's name.
+                yield line._replace(value="\n")
+                yield line._replace(value='###### ')
+                yield line
+                if add_links:
+                    name = "-".join(line.value.split()).lower()
+                    yield line._replace(value="".join([' <a name="', name, '"></a>']))
+                yield line._replace(value="\n")
+                yield line._replace(value="\n")
+
+                if code_syntax:
+                    yield line._replace(value="```%s\n" % (code_syntax,))
+
+            elif line.type == Line.CHUNK_END:
+                yield line._replace(value='```\n' if code_syntax else "\n")
+
+            elif line.type == Line.CODE:
+                if not code_syntax:
+                    yield self._indent_line(line, "    ")
+                else:
+                    yield line
+
+            elif line.type == Line.REFERENCE:
+                yield line._replace(value="".join(["<<", line.value, ">>", "\n"]))
+
+            elif line.type == Line.DOCUMENTATION:
+                assert(code_syntax == None)
+                yield line
+
+            else:
+                raise TypeError("Unknown type of line")
+
+    formatters = {
+        "markdown": format_markdown,
+        "mdown":    format_markdown,
+        "md":       format_markdown,
+
+        "text":     format_markdown,
+        "txt":      format_markdown,
+        None:       format_markdown,
+    }
+
 
     def write(self, lines, file=None):
         if isinstance(file, basestring) or file is None:
@@ -371,8 +424,8 @@ class Reader(object):
         else:
             outfile = file
 
-        for _, line in lines:
-            outfile.write(line.encode(self.encoding))
+        for line in lines:
+            outfile.write(unicode(line).encode(self.encoding))
 
         if file is None:
             return outfile.getvalue()
@@ -384,7 +437,6 @@ class Reader(object):
                 f.write(txt)
 
 def main():
-
     parser = argparse.ArgumentParser('NoWeb command line options.')
     subparsers = parser.add_subparsers(help='Working modes')
     parser.add_argument('input', metavar='FILE',
@@ -404,10 +456,10 @@ def main():
     parser_weave = subparsers.add_parser('weave', help='weave help')
     parser_weave.add_argument('--default-code-syntax', metavar='LANGUAGE',
         help='use this syntax for code chunks')
+    parser_weave.add_argument('--add-links', action="store_true",
+        help='Add HTML links to each code chunk')
     parser_weave.set_defaults(chunk=None)
-
     args = parser.parse_args()
-
     input = args.input
     if args.input == '-':
         input = sys.stdin
@@ -421,7 +473,8 @@ def main():
     if args.chunk:
         lines = doc.tangle(args.chunk)
     else:
-        lines = doc.weave(default_code_syntax=args.default_code_syntax)
+        lines = doc.weave(default_code_syntax=args.default_code_syntax,
+            add_links=args.add_links)
     doc.write(lines, out)
 
 if __name__ == "__main__":
