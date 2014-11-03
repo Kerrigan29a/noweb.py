@@ -1,6 +1,6 @@
 
 # Noweb.py
-[![Build Status](https://travis-ci.org/Kerrigan29a/noweb.py.svg?branch=develop)](https://travis-ci.org/Kerrigan29a/noweb.py)
+[![Build Status](https://travis-ci.org/Kerrigan29a/noweb.py.svg?branch=master)](https://travis-ci.org/Kerrigan29a/noweb.py)
 
 
 
