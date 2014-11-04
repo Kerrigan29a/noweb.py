@@ -59,7 +59,7 @@ if __name__ == '__main__':
         license='BSD 3 Clause',
         cmdclass={
             "build": CustomBuild,
-        }
+        },
         keywords="literate programming",
         classifiers=[
             "Development Status :: 3 - Alpha",

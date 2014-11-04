@@ -239,9 +239,6 @@ class Line(collections.namedtuple("Line",
     def __str__(self):
         return "".join([self.indentation, self.value])
 
-    def __str__(self):
-        return u"".join([self.indentation, self.value])
-
 
 class Reader(object):
     chunk_re         = re.compile(r'<<(?:(?P<syntax>[^:]+):)?(?P<name>[^>]+)>>')
