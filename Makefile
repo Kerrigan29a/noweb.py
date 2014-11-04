@@ -4,7 +4,7 @@ all: noweb.py README.md
 noweb.py: noweb.py.nw
 	@tmpfile=`mktemp /tmp/noweb.XXXXXXXXXX 2>/dev/null || mktemp -t noweb` ; \
 	set -x ; \
-	./bootstrap_notangle.py -o $$tmpfile -R $@ $< && \
+	./bootstrap.py -o $$tmpfile -R $@ $< && \
 	python $$tmpfile -o $@ tangle -R $@ $< && \
 	chmod +x $@ ; \
 	r=$$? ; \
@@ -17,3 +17,5 @@ README.md: noweb.py.nw noweb.py
 clean:
 	-rm noweb.py
 	-rm README.md
+	-rm *.pyc
+	-rm -r build
